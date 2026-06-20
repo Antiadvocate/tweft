@@ -317,6 +317,11 @@ export interface SaveState {
   pressure_trace: number[];    // controller history
   records: { id: string; type: string; title: string; contents: string; location: string }[];
   snapshots: { turn: number; blob: string }[]; // rollback ring (compressed JSON), max 6
+  // ── interview (hiring work-sample) layer ──
+  interview?: import("./interview-types").InterviewConfig;          // present ⇒ this save is an assessment
+  interview_report?: import("./interview-types").InterviewReport;   // the graded result
+  interview_timings?: import("./interview-types").ResponseTiming[]; // per-response timing, captured client-side
+  interview_clock_started_ms?: number | null;                       // epoch ms when the locked clock began
 }
 
 // ───────────────────────────── simulator contract ─────────────────────────────

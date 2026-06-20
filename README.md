@@ -1,78 +1,83 @@
-# Weft — a world that reacts (GitHub Pages build)
+# Management Assessment
 
-A persistent, social world-simulation engine with an LLM narrator. **This build runs entirely in your browser** — no server, no backend. The engine, the saves, and everything else live on your device; it talks to language models through *your own* OpenRouter key.
+A management **work-sample** tool. Instead of asking a candidate to *describe* how
+they'd manage, it drops them into a live, reactive team situation and watches how
+they actually manage it — then grades the interaction against a competency rubric.
 
-## Deploy it to your repo (the easy way)
+Built on a persistent social-simulation engine: reports have personalities, hidden
+drivers, moods, and relationships that shift in response to what the manager does.
+The candidate has to read the room, because nobody announces their inner state.
 
-1. Create a new GitHub repository and upload these files (or push this folder to it).
-2. In the repo, go to **Settings → Pages → Build and deployment → Source → GitHub Actions**.
-3. Push to `main`. The included workflow (`.github/workflows/deploy.yml`) builds and publishes automatically.
-4. Open the URL Pages gives you (e.g. `https://yourname.github.io/weft/`). Paste your OpenRouter key when prompted. Play.
+It runs entirely in your browser and talks to language models through your own
+[OpenRouter](https://openrouter.ai/keys) key (pasted once, stored only in
+`localStorage`). No backend, no server.
 
-That's it. Every push rebuilds and redeploys.
+## How it works
 
-### Run it locally first (optional)
+**1. Build an assessment (turn 0, the HR/designer side).**
+Define the manager role being assessed (paste a job description to auto-extract it).
+Add the team — each report's job, experience, personality, disposition toward a new
+manager (including authored friction and *why* it's there), and a hidden driver that
+only surfaces if the candidate diagnoses well. Write the literal opening message the
+candidate sees and the fixed end-state. Set a time budget and a typing-speed baseline.
+Optionally set a password that gates the reviewer-only "scopes."
 
+Everything is frozen once built, so **every candidate faces the identical scenario,
+clock, and rubric** — the fairness property a structured assessment needs.
+
+**2. The candidate runs it.**
+They read the opening and respond as the manager. The world reacts turn by turn.
+A **locked clock** starts the instant they begin their first reply and ends the
+assessment at the boundary — it can't be bypassed, idled past, or ended early to
+dodge a bad state. Each response's *latency* (the pause before typing — a positive
+composure signal) and *typing time* are measured against a length-adjusted baseline,
+so pacing reads as pressure-handling, never as typing speed.
+
+**3. Grading.**
+An assessor scores eight management competencies — drawn from standard structured-
+interview frameworks (SHRM / OPM): problem diagnosis, conflict management, decision-
+making, communication, influence, developing people, composure under pressure, and
+fairness & integrity. Each is scored by **matching the transcript to tiered
+behavioral anchors**, flexed by the role's level (first-line / manager-of-managers /
+peer-lead), and **grounded in the simulation's own relationship and engagement
+deltas** rather than prose fluency. It names the management style neutrally (and how
+it shifts under pressure), cites specific moments, and writes a paragraph for the
+reviewer.
+
+**4. The reviewer reads the report.**
+Scores, evidence, style, composure/timing, missed signals. With the password, they
+can unlock the "scopes" to see exactly what each report's hidden state was doing —
+making the candidate's read-of-the-room legible.
+
+## Important: what this is and isn't
+
+This is **decision-support evidence for a human reviewer — not an automated hire/no-
+hire gate.** Every report says so. As an AI-graded simulation it is internally
+consistent and useful for practice and signal, but it is **not a validated selection
+instrument**. Before using it in real hiring you must validate it against on-the-job
+outcomes and audit it for adverse impact — that work is what stands between "a better
+signal" and a discrimination liability.
+
+By design, the candidate's own identity is never an input, and the builder exposes no
+protected-characteristic field. Reports can have authored disposition and friction;
+the person being scored is a neutral vessel who faces the identical scene. Scores are
+grounded in behavioral state and the grader is instructed to assess managerial
+decisions, not writing quality — the defenses against surface bias leaking into a
+score.
+
+## Run it
+
+Local:
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # produces dist/ — the exact static bundle Pages serves
-npm run preview  # serve the built dist/ locally
+npm run dev
 ```
 
-## The OpenRouter key
+Deploy to GitHub Pages: push to `main`. The included workflow
+(`.github/workflows/deploy.yml`) builds and publishes automatically — just enable
+Pages → Source: GitHub Actions in the repo settings. `base: "./"` in the Vite config
+means it works at any path (user or project pages) with no per-repo change.
 
-Weft has no server to hold a secret, so it uses **your** key, entered once and stored in your browser's `localStorage` on that device only. It is sent directly to OpenRouter and to nowhere else. Get one (free and paid models available) at <https://openrouter.ai/keys>. You can change it anytime in **Tuning**.
+## Stack
 
-Because the key lives in the browser, **don't** hard-code it into the source or commit it. Anyone who can use your deployed page uses their own key.
-
-> Note: calls go from your browser straight to `openrouter.ai`, which permits cross-origin requests. If your network or an extension blocks third-party requests, the model calls won't go through.
-
-## Where your data lives
-
-Saves (including any AI-generated portraits and scene art) are stored in your browser via **IndexedDB**. They persist across reloads but are tied to that browser/profile. Use **Tuning → Export save** to download a `.weft.json` you can back up or move; **Library → Import** to load one anywhere.
-
-## What's inside
-
-The full engine ported to the browser:
-
-- **Two-call turn loop** — a streamed narrator and a single strict-JSON simulator; everything else is deterministic and free.
-- **The Undertow** — the continuous substrate: logit Quantal Response Equilibrium stances, a frustrated Kuramoto network with a Benettin Lyapunov estimate of the world's regime, cusp-catastrophe psyches that home to each person's set point, and Scheffer early-warning signals.
-- **Time-and-place-stamped memory** — every memory records *when* (in-world time) and *where* it happened, and the narrator sees lived distance ("Day 5, ≈3 weeks ago, at the Loom") so old events read as old, not as fresh shocks. Moving somewhere auto-writes a "left X for Y" memory, so a companion of a thousand turns actually remembers where she's been.
-- **Identity that earns its changes** — acquired traits and beliefs are now visible in the Cast drawer (with intensity/integration), and a full **raw JSON editor** is back — for characters (identity, condition, traits, memory) AND for the **world** (Tuning → Raw world edit: bible, threads, faction clocks, places, edges, canon), so you can fix anything the forge over-baked right at turn 1 (per-character: identity, condition, traits, memory — add traits/beliefs by hand). Speech is **derived live** every turn from baseline + strong acquired traits + age + current mood + the relationship to whoever's being addressed (a character is cutting to a hostile cop, soft to a lover). And deeply-held acquired traits **consolidate**: reinforced across a long arc, they fold permanently into core traits and the spoken voice — earned slowly, never from a single scene.
-- **Grounded complications** — a higher pressure reading no longer licenses invented lore. Complications must grow from what's already established (a thread, a known player, the scene), proportionate to what's happening; the engine will never spring a world-altering revelation, secret identity, or "you were a different species all along" retcon to fill a pressure quota. If there's no grounded friction, a quiet beat is correct. And in focus mode the controller can no longer push pressure UP to hit its target at all — a quiet stretch stays quiet.
-- **Focus phases (converge, then escalate)** — focus on an event and the story *builds* toward it: new unrelated chaos is suppressed and every scene bends toward the throughline, while the controller is forbidden from manufacturing friction to hit a quota. When the event actually fires on the clock, the phase **auto-advances** — "prepare for war" flips to "fighting the war," and the tension default flips from suppressed to hot, on its own. Fully generic; driven by the scheduled event firing, not by any keywords. Tap the X to release. 
-- **Set the clock by hand** — when the bookkeeper's time drifts from the prose (it says morning, the clock says 18:00), fix it from the Play screen's time control or in Raw world edit. 
-- **Events fire on the clock, not the turn counter** — when the fiction says something happens "in two days" or "at dawn", it's now scheduled against in-world time and held there. It won't spring in minutes just because several fast conversational turns passed; it comes due only when the calendar actually reaches it (including across time-skips), then arrives on its own.
-- **Story beats, not a talking simulator** — the narrator is now required to MOVE the situation every turn (an action, a discovery, an arrival, a position won or lost), action is fast and physical (no lengthy dialogue mid-fight), and low pressure means "no threat" rather than "nothing happens." Crucially, conflict no longer converges on everyone turning out good: hostility, contempt, and irreconcilable difference are valid lasting endpoints, and a character softening is a rare earned event, not a scene's default arc.
-- **Your direction is law** — your standing direction now sits at the TOP of the prompt as a supreme override, above the world bible, the cast, the clocks, and the model's own sense of drama. If you say a power/trait/topic is incidental and NOT the story, the narrator and simulator are bound to keep it peripheral every turn and never spin faction objectives or threads around it. The model subverting your stated premise to chase "interesting tension" is now defined as its worst possible failure.
-- **Token usage is visible** — the Chronicle shows a running token breakdown (input/output/total, per-turn average, and which model is your narrator and what share of spend it is), and flags when the narrator is a premium model so a $50 surprise can't sneak up on you. (Weft sees token counts, not prices — check openrouter.ai/activity for live billing.)
-- **Neutral is the default** — characters no longer manufacture suspicion or menace from ordinary input. The clench/paranoia physics applies only to characters whose state is actually clenched or whose traits are genuinely hostile; a calm, intact character reads situations accurately and reacts like a normal adult (curious, mildly skeptical, busy). A nervous newcomer asking for help gets a conversation, not a containment protocol. Escalation must be earned by events, not generated from vibes — and the narrator won't invent threatening backstory the state doesn't contain.
-- **Lucid villains** — the clench/openness physics governs the *wounded*; it no longer forces antagonists to be secretly good. Characters marked dark (manipulative, ruthless, predatory) are written as clearly, comfortably cruel.
-- **A real location model** — every character (you included) has a *place*, tracked by the bookkeeper from the prose: walk somewhere and your location follows; teleport or summon someone and the engine actually moves them there; name a far-off character and they're referenced, not teleported. Places (including in-between ones like "walking outside the dome") are auto-created on first mention. Who's "in the scene" is *derived* from co-location — never authored — so people stop materialising across the world mid-sentence.
-- **Editable opening** — generate, hand-edit, or clear the scene you start in (Tuning → Opening scene), shown as "the beginning" before turn 1.
-- **New chapter (RECAP)** — the Sprout button on any save distills its whole world-state into a fresh game after a time skip: surviving cast carried forward with evolved traits and relationships baked in, canon preserved, opening narrated as "RECAP: …". A season-2 generator.
-- **Character texture** — every character carries a few small standing interests, quirks, and sensitivities (generated from their background at forge, and the engine can quietly grow one when the story earns it — someone who keeps fishing "has taken to fishing"). The narrator surfaces these lightly in quiet moments — a tree-lover pausing at a good one — as seasoning, never the meal, never during tense scenes. Paired with a familiarity rule so long-established situations read as worn-in routine instead of perpetual revelation (no more "we're really doing this" about a six-month marriage).
-- **World tension dial (0–10)** — Tuning → World tension. The master control for how much the world throws at you. At **0 the engine introduces nothing new** — no fresh threats, threads, scheduled consequences, faction-clock moves, or background NPC drives; it only responds to what you do, pure breathing room. Low settings keep friction mild and stop new complications from being manufactured; the default 5 is the normal rhythm; high settings escalate fast and often. Independent of focus and lean mode.
-- **Lean mode & token budget (one app, two dials)** — Tuning → Token economy. *Lean mode* swaps in compressed instructions and sends only present/tracked characters, roughly halving input tokens at a small cost to prose richness. *Token budget* sets a hard per-turn ceiling: when set, context is trimmed toward it — shedding offscreen detail, old memories, and rumors first, and collapsing only the least-involved present characters as a last resort, so no one in your scene is ever dropped. Use either or both, per save.
-- **Identity consolidation & importance-aware memory** — central characters no longer lose who they've become. Memory eviction now protects high-salience moments (a first night together, a death, a betrayal) from the cap instead of dropping them by recency, and identity-defining memories (importance 8+) fold permanently into a separate life-history layer that shapes how the character is written — while the original forge identity stays untouched bedrock. As that history grows it self-compresses (oldest beats trimmed, and re-summarized by a cheap model only when it really piles up), so it never bloats — paired with relationship roles so "girlfriend" is a tracked fact, not an inference.
-- **Ground a reply with live web search** — a Globe ("web") toggle by the composer. Flip it on for a turn and that single narrator reply runs through OpenRouter's web search, so a story set in a real place or based on real subject matter gets the actual facts, locations, layouts, and details right. You control when (and only pay for search on those turns); off by default. Pairs well with the strangers-by-default fix so a known setting starts honest and stays accurate when you ask it to.
-- **Strangers by default** — new characters no longer arrive pre-attached to the player. The forge and simulator start anyone the player hasn't actually met at zero warmth with no relationship roles, and known-IP scenarios stop importing the source material's relationship web onto you — so you get real introductions instead of a stranger acting like an old friend.
-- **Speech / thought / action channels** — within a single message you can mix what you say, think, and do: "double quotes" are spoken aloud and others hear them, *asterisks* are a private thought no character can perceive or react to, and plain text is physical action. The narrator and the bookkeeper both respect the wall — a thought in asterisks never leaks to anyone in the scene, and no one forms knowledge or reactions from it.
-- **Coherence — pinned identity & continuity** — every character has explicit pronouns (no more guessing gender / he-she slips), and each present character's pronouns + core traits are restated right beside their live state instead of only in a far-away cast card, so cheaper models stop dropping them mid-context. The immediately-previous prose is also carried forward each turn so voices and facts stay consistent rather than drifting.
-- **Relationship roles** — bonds now carry labeled, possibly multiple relationships ("boss" *and* "girlfriend"; "older sister" *and* "rival"), tracked as facts separate from the warmth/trust temperature. The Simulator sets them when the fiction makes a relationship explicit, the narrator always knows them, and they show in the cast drawer's Bonds and on the relationship web. Multiplicity is first-class — one person can be several things to another at once.
-- **The web — a relationship graph** in the World tab: the whole cast as a diagram, player at center, edges colored by warmth (green warm / amber cool / red hostile) and weighted by strength. Tap any face to isolate their ties. Makes the social simulation legible at a glance — and surfaces an all-allies or all-hostile cast instantly.
-- **Who's here** — the Play screen now shows a strip of exactly which characters are in the scene with you (with their faces) and where, so no one is silently present.
-- **Characters actually grow** — acquired traits now fire on any meaningful beat (a betrayal, a kindness, a humiliation, a faced fear), planted at low intensity and strengthening with repetition, visible in the Cast drawer's "becoming" section.
-- **The dead leave the stage** — when a character is killed or permanently leaves the story, the Simulator records it; they're pulled from the scene and every room, stop getting new drives, vanish from the relationship web, and move to a collapsed "Gone" section in the cast (greyed, with how they exited) — instead of lingering as an active being. (You can revive or remove anyone by hand in the raw character editor by setting their status.)
-- **Multiple drives per character** — each tracked character can hold a priority stack of up to three goals. They pursue the top one, but when it stalls, completes, or the scene goes quiet, they switch to a higher- or equal-priority backup — leaving a calm thread to chase a more pressing one elsewhere instead of hovering near you.
-- **NPC autonomy & tracking** — named characters you engage join the "long game": offscreen they keep wanting things. When a character finishes a drive (or has none), the engine seeds a new one from *who they are* — their traits, values, and how they feel about everyone else — so a detective starts a new case, a thief plans a score, a rival regroups, all without you authoring it. Follow/unfollow any character with the eye toggle in **Cast**; the narrator can also pull a character into the long game when a thread makes them matter. Unfollowed bit-players recede into the background.
-- **Continuity** — let the world turn (deterministic multi-day skips with an interlude), and vessels (leave your character, become another, full identity swap).
-- **Canon** — world-altering public events every mind remembers forever.
-- **Park-style memory** with reflection, a social fabric of edges + rumor cascades, faction clocks, deterministic pressure control, the full world-bible & character editors, God Mode, dark/light, image generation, and the Chronicle's arcs, records, and regime read-outs.
-
-**Art direction you control** (Tuning → Art direction): set the visual style once — "muted painterly chiaroscuro", "90s cel anime", "gritty photoreal" — and it governs all images. Portraits are full-body, head-to-toe, on a white studio background, and the prompt reads the *whole* character (appearance, core + acquired traits, current bearing, even a guiding belief) so the figure looks like who they actually are. Those portraits are then fed as reference images when illustrating a scene, so the cast stays visually consistent (on image models that accept multimodal input, e.g. the Gemini flash-image family).
-
-You can choose any OpenRouter image model for portraits and scene art in **Tuning → Images** (Gemini, FLUX, GPT-Image, etc.), and tap any portrait or scene illustration to view it full-screen.
-
-Built with React 19 + Vite + Tailwind 4 + Motion. `base: "./"` means it works from a user root *or* a project subpath with no per-repo configuration.
+React 19 · Vite 6 · Tailwind 4 · Motion · IndexedDB (local saves) · OpenRouter.

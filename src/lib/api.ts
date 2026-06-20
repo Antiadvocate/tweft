@@ -14,12 +14,28 @@ import { FORGE_SYSTEM, OPENING_SYSTEM, NEWSEASON_SYSTEM, buildPortraitPrompt, bu
 import { formatTime, parseTime } from "../engine/time";
 import { buildMessages, complete, generateImage, safeJson } from "../llm";
 import { getSave, putSave, deleteSave as dbDelete, listSaves as dbList } from "../store";
+import {
+  assembleInterview, extractRole as engExtractRole, extractReport as engExtractReport,
+  defaultTimeBudget, type InterviewBuildInput,
+} from "../engine/interview-build";
+import { gradeInterview as engGradeInterview } from "../engine/interview-assess";
+import { verifyScopePassword } from "../engine/interview-timing";
+import type {
+  RoleSpec, ReportSpec, ScenarioObjective, InterviewReport, ResponseTiming,
+} from "../engine/interview-types";
 
 export type ClientSave = Omit<SaveState, "snapshots"> & { snapshot_turns: number[] };
 export type {
   ModelSettings, WorldBible, WorldState, Identity, AcquiredTrait,
   Condition, CharMemory, TurnHistoryEntry, TurnTelemetry,
 };
+export type {
+  RoleSpec, ReportSpec, ScenarioObjective, InterviewReport, InterviewConfig,
+  ManagerLevel, Competency, ResponseTiming,
+} from "../engine/interview-types";
+export {
+  COMPETENCY_LABEL, COMPETENCY_ORDER, COMPETENCY_DEF, LEVEL_LABEL,
+} from "../engine/interview-types";
 export type ActionMode = "do" | "say" | "story";
 
 export interface PresetInfo { id: string; name: string; blurb: string; era_theme: string }
@@ -451,6 +467,69 @@ export const api = {
     s.snapshots ??= []; s.telemetry ??= []; s.pressure_trace ??= []; s.history ??= [];
     await putSave(s);
     return clientView(s);
+  },
+
+  // ───────────────────────────── interview (hiring work-sample) ─────────────────────────────
+
+  /** Extract a manager RoleSpec from a pasted job description. */
+  extractRole: (jd: string, model?: string): Promise<RoleSpec> => engExtractRole(jd, model),
+
+  /** Extract a neutral report baseline from a pasted job description (personality added separately). */
+  extractReport: (jd: string, model?: string): Promise<Partial<ReportSpec>> => engExtractReport(jd, model),
+
+  /** Turn-0: build the locked interview save. Returns the new ClientSave. */
+  buildInterview: async (input: {
+    role: RoleSpec; reports: ReportSpec[];
+    opening_message: string; opening_situation: string; end_state_note: string;
+    objectives: ScenarioObjective[]; minutes: number; assumed_wpm: number;
+    scope_password?: string; organization_name?: string;
+  }): Promise<ClientSave> => {
+    const budget = defaultTimeBudget(input.minutes);
+    budget.assumed_wpm = input.assumed_wpm;
+    const build: InterviewBuildInput = {
+      role: input.role, reports: input.reports,
+      opening_message: input.opening_message, opening_situation: input.opening_situation,
+      end_state_note: input.end_state_note, objectives: input.objectives,
+      time_budget: budget, scope_password: input.scope_password,
+      organization_name: input.organization_name,
+    };
+    const s = await assembleInterview(build);
+    await putSave(s);
+    return clientView(s);
+  },
+
+  /** Persist a response's timing (called by the runner after each candidate turn). */
+  recordTiming: async (id: string, timing: ResponseTiming): Promise<ClientSave> => {
+    const s = await need(id);
+    s.interview_timings = [...(s.interview_timings ?? []), timing];
+    await putSave(s);
+    return clientView(s);
+  },
+
+  /** Mark the locked clock as started (called when the candidate begins their first response). */
+  startClock: async (id: string): Promise<number> => {
+    const s = await need(id);
+    if (s.interview_clock_started_ms == null) {
+      s.interview_clock_started_ms = Date.now();
+      await putSave(s);
+    }
+    return s.interview_clock_started_ms!;
+  },
+
+  /** Run the end-gate grader. */
+  gradeInterview: async (id: string): Promise<{ report: InterviewReport; save: ClientSave }> => {
+    const s = await need(id);
+    const report = await engGradeInterview(s, s.interview_timings ?? []);
+    s.interview_report = report;
+    await putSave(s);
+    return { report, save: clientView(s) };
+  },
+
+  /** Verify the reviewer-scope password against the stored salted hash. */
+  verifyScopes: async (id: string, password: string): Promise<boolean> => {
+    const s = await need(id);
+    if (!s.interview?.scopes?.enabled) return false;
+    return verifyScopePassword(password, s.interview.scopes.password_hash, s.interview.scopes.password_salt);
   },
 };
 
