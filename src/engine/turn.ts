@@ -9,15 +9,16 @@
  *      rumor diffusion, drive ticks, clock/consequence bookkeeping — 0 tokens
  *   5. reflection (every R turns, importance-gated)            [occasional small call]
  */
-import type { ActionMode, SaveState, SimulatorDiff, TurnTelemetry, Belief } from "./types";
-import { decidePressure, isDue, pressureDirective } from "./pressure";
+import type { ActionMode, SaveState, SimulatorDiff, TurnTelemetry, Belief, Stance } from "./types";
+import { decidePressure, isDue, pressureDirective, detectPowerTier } from "./pressure";
 import { narratorSystem, simulatorSystem, REFLECTION_SYSTEM, simulatorSchemaHint, stablePrefix, volatileDigest } from "./prompts";
+import { updateMind } from "./mind";
 import { buildMessages, complete, completeStream, safeJson } from "../llm";
 import { advance, heuristicMinutes } from "./time";
-import { applyEdgeDelta, capMemory, consolidateBackground, consolidateTraits, decayTraits, diffuseRumors, needsHistoryCompaction, reinforceOrMergeTrait, tickDrives, playerEdgeSnapshot } from "./social";
+import { applyEdgeDelta, capMemory, consolidateBackground, consolidateTraits, decayTraits, diffuseRumors, needsHistoryCompaction, reinforceOrMergeTrait, tickDrives, playerEdgeSnapshot, tickPsyche } from "./social";
 import { regenerateDrives, seedDrive } from "./drives";
-import { reflectionDue, applyReflection } from "./memory";
-import { tickUndertow } from "./undertow";
+import { reflectionDue, applyReflection, tickMemoryDecay, reconsolidate, integrationGate, compactGist } from "./memory";
+import { neutralUndertow } from "./undertow";
 import { pushSnapshot, registerCharacter, uid } from "./state";
 
 export interface TurnEvents {
@@ -27,6 +28,32 @@ export interface TurnEvents {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * STRIP LEAKED META — strained models sometimes emit their own working notes into the prose
+ * (a trailing parenthetical of craft vocabulary: "(110 words. Action, reaction, escalation. No
+ * interiority...)") or a stray instruction-echo line. The player must never see this. We remove a
+ * trailing parenthetical block that reads as self-commentary, and any standalone line that is
+ * clearly the model talking about its own writing rather than narrating the scene.
+ */
+function stripMeta(text: string): string {
+  if (!text) return text;
+  let t = text.trim();
+  const META = /\b(word count|words?\.|interiority|kinetic|action,?\s*reaction|escalation|concrete development|ends? on|begins? on|second person|paragraphs?\.|no dialogue|prose only|the player'?s? (declaration|action) is (absolute|inviolable)|per the directive|as instructed|word-?count|beat sheet|tone:|register:|pacing:)\b/i;
+  // 1) trailing parenthetical note packed with craft vocabulary
+  t = t.replace(/\s*\(([^()]{0,400})\)\s*$/,(m, inner) => META.test(inner) ? "" : m).trim();
+  // 2) trailing bracketed note
+  t = t.replace(/\s*\[([^\[\]]{0,400})\]\s*$/,(m, inner) => META.test(inner) ? "" : m).trim();
+  // 3) standalone meta lines anywhere (a whole line that is craft-talk, not scene)
+  t = t.split("\n").filter((ln) => {
+    const s = ln.trim();
+    if (!s) return true;
+    // a line is meta if it's short-ish AND hits craft vocabulary AND isn't obviously in-scene prose (no quotes/sentence flow)
+    const looksMeta = META.test(s) && s.length < 220 && !/["“”]/.test(s) && (/^\(|^\[|^—\s|^\d+\s*words/i.test(s) || (s.match(/[.;]/g)?.length ?? 0) >= 2 && /\b(no |ends? on|begins? on|direct\.|kinetic\.)\b/i.test(s));
+    return !looksMeta;
+  }).join("\n").trim();
+  return t;
+}
 
 function emptyDiff(): SimulatorDiff {
   return {
@@ -60,7 +87,14 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
 
   // 1 ── the undertow turns first: strategy, chaos, catastrophe (deterministic, 0 tokens)
   ev.onPhase("undertow");
-  const undertow = tickUndertow(state);
+  // ── KERNEL: psyche is driven by the relaxation scalar itself, recovered toward capacity.
+  //    (The cusp-catastrophe/Kuramoto layer that used to OVERWRITE relaxation here has been
+  //    removed — it severed the generative kernel. Relaxation is the driver again: the
+  //    simulator's per-character relaxation_delta moves it, tickPsyche drifts it toward
+  //    capacity and derives state. Emergence from one scalar, as originally designed.) ──
+  for (const id of Object.keys(state.condition)) tickPsyche(state.condition[id].psyche);
+  for (const id of Object.keys(state.memory)) tickMemoryDecay(state.memory[id], state.world.current_turn);
+  const undertow = neutralUndertow();
 
   // 1b ── pressure (deterministic), heat amplified when the world is primed
   ev.onPhase("pressure");
@@ -78,13 +112,58 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
   ev.onPhase("narrator");
   const prefix = stablePrefix(state);
   const digest = volatileDigest(state, action);
-  let directive = pressureDirective(verdict, state.world_bible.pressure_palette, state.model_settings.tension ?? 5);
-  const forbid = state.world_bible.forbidden_as_primary?.length
-    ? `\nNever the primary engine of this scene: ${state.world_bible.forbidden_as_primary.join("; ")}.` : "";
-  if (state.world_bible.god_mode) {
-    directive += `\nGOD MODE — the player is sovereign here. Their powers succeed completely and cost NOTHING unless they narrate a cost themselves. Override any cost or limitation language in the world bible's magic rules for the player only. The world still reacts honestly: people fear, adapt, worship, scheme, flee, disbelieve. Pressure comes from the world's response to a god walking it, never from handicapping the god.`;
+  const god = !!state.world_bible.god_mode;
+  // tier is a light gate (blocks the "throw troops at a god" category error); it does NOT script
+  // behavior — that emerges from each character's relaxation state via the perception gate.
+  const recentText = [
+    ...state.history.slice(-3).map((h) => h.narrator_prose ?? ""),
+    state.history.slice(-1)[0]?.player_action ?? "",
+  ].join(" ");
+  const tier = detectPowerTier(god, recentText);
+  let directive = pressureDirective(verdict, state.world_bible.pressure_palette, state.model_settings.tension ?? 5, tier);
+
+  // ── PLOT-STALL DETECTION ── A scene has no engine of its own when nothing is pushing the PLOT
+  // outward. The subtlety: a thread can carry high tension while being purely INTERNAL — a
+  // character's awe, collapse, or realization. That kind of tension generates lush reaction-prose
+  // that goes nowhere. So we don't ask "is there tension," we ask "is there tension pointed at an
+  // external situation." When the only live threads are emotional, no consequence is pending, no
+  // clock is live, AND the player is passive, the scene is stalled even if it looks intense.
+  const INTERNAL_THREAD = /\b(collaps|awe|realiz|understand|awaken|existential|feeling|inner|spiritual|grief|accept|reckon|contempl|peace|doubt|faith|recogni|devotion|worship|reverence)\b/i;
+  const plotThreads = (state.world.threads ?? []).filter((t) => (t.tension ?? 0) >= 3 && !INTERNAL_THREAD.test(`${t.title} ${t.description}`));
+  const liveThread = plotThreads.length > 0;
+  const pendingCons = (state.world.consequences ?? []).some((c) => c.status === "pending");
+  const liveClock = (state.world.clocks ?? []).some((c: any) => c?.threshold && (c.progress ?? 0) < c.threshold);
+  const passiveAct = !action.trim() || /^\s*(\[observer\]|continue|i watch|i wait|i observe|i look|i listen|watch|wait|observe|keep going|go on|\.\.\.)\b/i.test(action.trim());
+  // stalled: no OUTWARD plot pressure of any kind, and the player isn't supplying momentum either
+  const stalled = !liveThread && !pendingCons && !liveClock && passiveAct;
+  const stallDirective = stalled
+    ? `\nSCENE HAS STALLED — nothing in the world is pushing the PLOT outward (the only live tensions, if any, are internal/emotional), and the player is passive. Do NOT fill the turn with the present characters reacting to the player or marinating in feeling — that is precisely the failure to avoid. The WORLD must move on its own: introduce a NEW external development this turn that does not depend on the player. Pick one and make it concrete and physical: someone new arrives with a purpose of their own; news reaches the room of something happening elsewhere; a faction, rival, or authority acts; the larger situation (the tournament, the war, the place's routine, an outside power) reasserts itself with a fresh demand or claimant; a consequence of what the player has already done manifests somewhere new and lands here. ${tier === "cosmic" || tier === "mythic" ? "The player is beyond threat, so this is NOT an attack on them — it is the world having its own momentum: people elsewhere want things, act, and bring those wants into the room. A god is not the end of the world's story; the world keeps turning around them." : ""} End on this new development requiring a response. Move the plot, not the mood.`
+    : "";
+
+  // forbidden_as_primary stops the NARRATOR from reaching for a theme unprompted as a lazy
+  // plot-solver. In god mode it is suppressed entirely (the player is sovereign). Outside god
+  // mode it restrains the narrator's own plotting only — never an action the player declares.
+  const forbid = (!god && state.world_bible.forbidden_as_primary?.length)
+    ? `\nNever the primary engine of this scene: ${state.world_bible.forbidden_as_primary.join("; ")}. (This restrains your own unprompted plotting; it does not override an action the player explicitly declares.)`
+    : "";
+
+  if (god) {
+    // detect an ONGOING / escalating declaration vs a discrete one-and-done act. "I will kill this
+    // realm", "I begin unmaking the city", "I start tearing it all down" initiate a PROCESS that must
+    // visibly unfold and accelerate this turn — not be rendered as a single tremor and a promise of
+    // more later. This is the milquetoast trap: the player supplies huge momentum and the narrator
+    // spends it on atmosphere and reaction instead of delivering the escalating event.
+    const lowerAct = action.toLowerCase();
+    const ongoing = /\b(i('?m| am| will| shall|'ll)?\s*(going to|begin|start|am beginning|will begin)\b|\bkill (this|the) (realm|world|planet|city|place)\b|\bunmak\w*|\btear\w* (it|this|the) .*(down|apart|realm|world|place)|\bbring\w* (it|this|them|the|this) (whole )?(place|realm|world|city)?\s*(all )?down|\bend (this|the) (realm|world|place|everything)|\bdestroy\w* (everything|it all|the realm|the world|this place|the place))/i.test(lowerAct);
+    directive += `\nGOD MODE — THE PLAYER IS ABSOLUTELY SOVEREIGN. Whatever the player declares happens, completely, immediately, at exactly the scale and intensity they state, with no cost unless they narrate one. This overrides everything else: the magic rules, the difficulty profile and its lethality setting, the forbidden list, "consequence not catastrophe," "fair scale," and your own instinct to keep things small or safe. Never downscale, soften, delay, deflect, reinterpret, or substitute a tamer version of what they declared. If they kill millions, millions die as real bodies. If they remake a city, the city is remade.`;
+    if (ongoing) {
+      directive += `\nTHE PLAYER HAS INITIATED A LARGE, ONGOING ACTION — it must VISIBLY UNFOLD AND ACCELERATE this turn, not be rendered as a hint of things to come. The single worst failure here is decompressing a declared cataclysm into atmosphere: one tremor, a flickering torch, a character who "doesn't finish the sentence," a promise that it will happen soon. NO. If they said they are killing the realm, the realm is DYING NOW and fast — show it concretely and at scale this turn: structures failing, the ground opening, the sky changing, people dying en masse, the physical process tearing through everything, escalating paragraph by paragraph. Deliver the event in progress, not the warning before it. Reaction is at most a sentence amid the cataclysm; the cataclysm itself is the turn. End mid-acceleration with the thing well underway, not poised to begin.`;
+    } else {
+      directive += `\nThe player's act is done as declared. Now show the world's honest reaction to it — drawn from each present character's own state and relationship to the player, never from a script, and never by undoing or shrinking what happened. But reaction is not a substitute for events: if the moment calls for the story to keep moving, move it.`;
+    }
   }
-  const fullDirective = directive + forbid + "\n" + undertow.directive;
+
+  const fullDirective = directive + forbid + stallDirective + "\n" + undertow.directive;
   const groundNote = opts?.ground ? `\n\n=== GROUNDING (this turn) ===\nThis story is set in a real place / based on real subject matter. Use web search to get the real-world facts right — actual locations, layouts, names, how things really work, accurate period or setting detail — and weave that accuracy naturally into the prose. Do not cite sources or break the fiction; just be correct.` : "";
   const narratorMsgs = buildMessages(
     narratorSystem(state.model_settings.lean_mode), prefix,
@@ -93,12 +172,13 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
   );
   const stream = completeStream(narratorMsgs, state.model_settings.narrator_model, state.model_settings.fallback_model, 4000, opts?.ground === true);
   let prose = "";
-  let narratorUsage = { prompt_tokens: 0, completion_tokens: 0 };
+  let narratorUsage: import("../llm").Usage = { prompt_tokens: 0, completion_tokens: 0 };
   while (true) {
     const { done, value } = await stream.next();
     if (done) { prose = value.text; narratorUsage = value.usage; break; }
     ev.onDelta(value);
   }
+  prose = stripMeta(prose);
 
   // 3 ── simulator (one JSON call: bookkeeper + world tick + memory writes)
   ev.onPhase("simulator");
@@ -107,7 +187,7 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
     `${digest}\n\n=== PLAYER ACTION ===\n${framedAction}\n\n=== NARRATOR PROSE (source of truth) ===\n${prose}`,
     state.model_settings.simulator_model,
   );
-  let simUsage = { prompt_tokens: 0, completion_tokens: 0 };
+  let simUsage: import("../llm").Usage = { prompt_tokens: 0, completion_tokens: 0 };
   let diff = emptyDiff();
   try {
     const res = await complete(simMsgs, state.model_settings.simulator_model, state.model_settings.fallback_model, true, 3000);
@@ -126,12 +206,49 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
   offscreenLog.push(...undertow.snaps);
   offscreenLog.push(...undertow.stances.slice(0, 3).map((st) => `${st.name} ${st.stance === "press" ? "presses" : st.stance === "maneuver" ? "maneuvers" : st.stance === "hold" ? "holds position" : "yields ground"} against ${st.vs} (quantal p=${st.p.toFixed(2)})`));
   // present, named characters the player is actually engaging join the long game
+  const capCentral = state.model_settings.max_central_characters ?? 6;
   for (const id of state.world.present) {
     const c = state.characters[id];
-    if (c && id !== "char_player" && !c.tracked && looksNamed(c.name)) c.tracked = true;
+    if (c && id !== "char_player" && !c.tracked && looksNamed(c.name)) {
+      // a named character in the scene becomes central (tracked, full fidelity) — but only if
+      // there's room under the cap. If we're full, they stay a background/non-central figure.
+      const nCentral = Object.values(state.characters).filter((x) => x.character_id !== "char_player" && x.central && x.status !== "dead" && x.status !== "departed").length;
+      if (nCentral < capCentral) { c.tracked = true; c.central = true; }
+      else if (c.central === undefined) c.central = false;
+    }
   }
   offscreenLog.push(...tickDrives(state));   // completion events (progress already moved by QRE stances)
-  if ((state.model_settings.tension ?? 5) > 0) offscreenLog.push(...regenerateDrives(state)); // tracked + idle → a fresh want; suppressed entirely at tension 0
+
+  // ── THEORY-OF-MIND UPDATE ── reconnect the mind layer that was orphaned when the undertow (which
+  // used to call it, off the deleted QRE stance game) was removed. Without this, characters' models
+  // of each other never update and mindDigest is empty. We now derive the inputs from the live
+  // relaxation kernel instead of the deleted math: a character's OBSERVABLE stance is read from how
+  // clenched they are (clenched → press/guard, open → yield/warm), and DISPERSION is the spread of
+  // relaxation across the present cast (high spread = pulling apart, which erodes settled confidence).
+  if ((state.model_settings.tension ?? 5) > 0) {
+    const presentReal = state.world.present.filter((pid) => state.characters[pid] && pid !== "char_player");
+    const relVals = presentReal.map((pid) => state.condition[pid]?.psyche?.relaxation ?? 0);
+    // dispersion: normalized spread (std-dev-ish) of openness across the room, 0..1
+    let dispersion = 0;
+    if (relVals.length >= 2) {
+      const mean = relVals.reduce((a, b) => a + b, 0) / relVals.length;
+      const variance = relVals.reduce((a, b) => a + (b - mean) ** 2, 0) / relVals.length;
+      dispersion = clamp(Math.sqrt(variance) / 10, 0, 1); // relaxation is ~-10..10, so /10 normalizes
+    }
+    const stanceOf = (pid: string): Stance => {
+      const r = state.condition[pid]?.psyche?.relaxation ?? 0;
+      return r <= -6 ? "press" : r <= -2 ? "hold" : r >= 4 ? "yield" : "maneuver";
+    };
+    const observedStances: Record<string, Stance> = {};
+    for (const pid of presentReal) observedStances[pid] = stanceOf(pid);
+    for (const id of presentReal) {
+      if (!state.characters[id]?.central) continue; // only central characters carry full theory-of-mind
+      const r = updateMind(state, id, observedStances, turn, dispersion);
+      if (r.lines.length) shifts.push(...r.lines.slice(0, 1)); // surface at most one belief-shift line
+    }
+  }
+
+  if ((state.model_settings.tension ?? 5) > 0) offscreenLog.push(...regenerateDrives(state, Math.random, undertow.epistemic_pulls ?? [], { dispersion: undertow.dispersion, sharedTarget: undertow.shared_target })); // tracked + idle → a fresh want; epistemic pulls steer toward "find out" goals; dispersion spreads the cast off any shared magnet; suppressed entirely at tension 0
   offscreenLog.push(...diffuseRumors(state));
   for (const id of Object.keys(state.characters)) {
     // conditions decay for EVERYONE incl. the player — a nosebleed is not a life sentence
@@ -241,6 +358,8 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
     turn, pressure: verdict.pressure, pressure_source: verdict.source,
     narrator_tokens_in: narratorUsage.prompt_tokens, narrator_tokens_out: narratorUsage.completion_tokens,
     simulator_tokens_in: simUsage.prompt_tokens, simulator_tokens_out: simUsage.completion_tokens,
+    cached_tokens: (narratorUsage.cached_tokens ?? 0) + (simUsage.cached_tokens ?? 0),
+    turn_cost: (narratorUsage.cost ?? 0) + (simUsage.cost ?? 0) || undefined,
     reflection_tokens: reflectionTokens, duration_ms: Date.now() - t0,
     word_count: prose.split(/\s+/).filter(Boolean).length,
     player_mood_valence: state.condition["char_player"]?.psyche.mood_valence ?? 0,
@@ -250,6 +369,12 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
     regime: undertow.regime, early_warning: undertow.early_warning,
   };
   state.telemetry.push(tel);
+  // sliding window: long campaigns (thousands of turns) would otherwise bloat every save with raw
+  // per-turn telemetry. Keep a generous recent window — the charts don't need more, and lifetime
+  // counts that matter are derived elsewhere. Same for the pressure trace.
+  const TEL_WINDOW = 300;
+  if (state.telemetry.length > TEL_WINDOW) state.telemetry = state.telemetry.slice(-TEL_WINDOW);
+  if (state.pressure_trace.length > TEL_WINDOW) state.pressure_trace = state.pressure_trace.slice(-TEL_WINDOW);
   state.world.current_turn++;
   ev.onMeta({ telemetry: tel, offscreen: offscreenLog.slice(0, 6), shifts: shifts.slice(0, 8), weather: state.world.weather, time: state.world.current_time });
 }
@@ -309,10 +434,17 @@ function resolveId(state: SaveState, ref: string): string | null {
 export function resolvePlace(state: SaveState, ref: string): string {
   if (!ref) return state.world.player_location;
   if (state.world.places[ref]) return ref;
-  const byName = Object.values(state.world.places).find((p) => p.name.toLowerCase() === ref.trim().toLowerCase());
+  // normalize transient phrasings so "walking outside the dome" and "outside the dome" don't
+  // spawn two records: drop leading motion gerunds and "in transit to", trim articles/punctuation.
+  const norm = ref.trim()
+    .replace(/^(walking|heading|moving|going|running|traveling|travelling|in transit|en route)\s+(to|toward|towards|into|through|out|outside|past|along|near|by)?\s*/i, "")
+    .replace(/^(the|a|an)\s+/i, "")
+    .replace(/[.,;:]+$/, "")
+    .trim() || ref.trim();
+  const byName = Object.values(state.world.places).find((p) => p.name.toLowerCase() === norm.toLowerCase() || p.name.toLowerCase() === ref.trim().toLowerCase());
   if (byName) return byName.id;
   const id = uid("loc");
-  state.world.places[id] = { id, name: ref.trim(), description_facts: "", contains: [] };
+  state.world.places[id] = { id, name: norm, description_facts: "", contains: [] };
   return id;
 }
 
@@ -365,9 +497,33 @@ export function applyDiff(state: SaveState, diff: SimulatorDiff, action: string,
   }
 
   // new characters & places first so later refs resolve
+  // RENAME — a placeholder-named character ("the stranger") given a real name in the prose. Update
+  // the actual character record (and rumor/canon references) so they're known by their real name now.
+  for (const rn of (diff as any).rename ?? []) {
+    if (!rn?.who || !rn?.new_name) continue;
+    const id = resolveId(state, rn.who) || findCharByName(state, rn.who);
+    if (!id || !state.characters[id]) continue;
+    const oldName = state.characters[id].name;
+    const newName = String(rn.new_name).trim();
+    if (!newName || newName.toLowerCase() === oldName.toLowerCase()) continue;
+    // don't collide with an existing different character
+    const clashId = findCharByName(state, newName);
+    if (clashId && clashId !== id) continue;
+    state.characters[id].name = newName;
+    shifts.push(`${oldName} is named: ${newName}.`);
+  }
+
+  const maxCentral = state.model_settings.max_central_characters ?? 6;
+  const centralCount = () => Object.values(state.characters).filter((c) => c.character_id !== "char_player" && c.central && c.status !== "dead" && c.status !== "departed").length;
   for (const nc of diff.new_characters ?? []) {
     if (!nc?.name || findCharByName(state, nc.name)) continue;
-    registerCharacter(state, { ...nc, character_id: undefined as any, gregariousness: clamp(nc.gregariousness ?? 0.5, 0, 1) });
+    // CENTRAL-CHARACTER CAP: a new character joins as central (full fidelity) only if there's room
+    // under the cap. Beyond it, they register as NON-CENTRAL — a background/environment figure with
+    // minimal footprint and simple handling — until something promotes them (e.g. a central
+    // character departs/dies and the simulator elevates this one because they now matter).
+    const canBeCentral = centralCount() < maxCentral;
+    registerCharacter(state, { ...nc, character_id: undefined as any, gregariousness: clamp(nc.gregariousness ?? 0.5, 0, 1), central: canBeCentral, tracked: canBeCentral && (nc as any).tracked });
+    if (!canBeCentral) shifts.push(`${nc.name} enters as a background figure (cast is at ${maxCentral} central characters).`);
   }
   for (const np of diff.new_places ?? []) {
     if (!np?.name) continue;
@@ -521,7 +677,8 @@ export function applyDiff(state: SaveState, diff: SimulatorDiff, action: string,
     const mem = state.memory[id]; if (!mem) continue;
     const wherePid = state.characters[id]?.location;
     mem.episodic.push({
-      turn, content: m.content, importance: clamp(m.importance ?? 3, 1, 10),
+      turn, content: compactGist(m.content), full_content: m.content, decay_stage: 0,
+      importance: clamp(m.importance ?? 3, 1, 10),
       emotional_charge: m.emotional_charge ?? "", last_accessed_turn: turn,
       when_label: state.world.current_time,
       where: (wherePid && state.world.places[wherePid]?.name) || undefined,
@@ -531,17 +688,60 @@ export function applyDiff(state: SaveState, diff: SimulatorDiff, action: string,
     if (id !== "char_player" && (m.importance ?? 3) >= 6) shifts.push(`${nameOf(id)} will remember that.`);
   }
 
+  // reconsolidation: discussed past events get rebuilt with supplied detail (recall rewrites the
+  // trace) — BUT only if the receiver credits the source. Whether the detail integrates is gated by
+  // the receiver's warmth+trust toward whoever supplied it, against their own clench-resistance.
+  for (const rc of (diff as any).memory_recohere ?? []) {
+    const id = resolveId(state, rc.char_id); if (!id || !rc.about || !rc.added_detail) continue;
+    const mem = state.memory[id]; if (!mem) continue;
+    // integration gate: do they believe this source?
+    const srcId = rc.source_char ? resolveId(state, rc.source_char) : null;
+    const relax = state.condition[id]?.psyche?.relaxation ?? 0;
+    let integrates = true;
+    if (srcId && srcId !== id) {
+      const edge = state.world.edges.find((e) => e.from === id && e.to === srcId);
+      integrates = integrationGate(relax, edge?.warmth ?? 0, edge?.trust ?? 0);
+    }
+    if (!integrates) {
+      // they hold their own version; the correction bounces off
+      if (id !== "char_player") shifts.push(`${nameOf(id)} isn't buying that version.`);
+      continue;
+    }
+    const merged = reconsolidate(mem, rc.about, rc.added_detail, turn);
+    if (!merged) {
+      // nothing close enough to recohere — it was effectively a new recollection; store it
+      mem.episodic.push({
+        turn, content: rc.added_detail, full_content: rc.added_detail, decay_stage: 1,
+        importance: 4, emotional_charge: "", last_accessed_turn: turn, when_label: state.world.current_time,
+      });
+      mem.episodic = capMemory(mem.episodic);
+    }
+  }
+
   for (const cn of diff.canon_add ?? []) {
     if (!cn || state.world.canon.some((x) => x.toLowerCase() === cn.toLowerCase())) continue;
     state.world.canon.push(cn);
     if (state.world.canon.length > 20) state.world.canon.shift();
-    for (const id of Object.keys(state.memory)) {
+    // Canon is world-altering and PUBLIC, but knowledge of it PROPAGATES — it does not teleport
+    // into every mind at once. Those PRESENT witnessed it and remember it now. Everyone else learns
+    // it the way news travels: seeded as a fast-spreading rumor that reaches other minds over turns.
+    // (Destroy a city, then flee to another country, and the people there don't know yet.)
+    for (const id of state.world.present) {
+      if (!state.memory[id]) continue;
       state.memory[id].episodic.push({
-        turn, content: `The world changed, and everyone knows it: ${cn}`,
-        importance: 8, emotional_charge: "awe", last_accessed_turn: turn,
+        turn, content: `I was there when it happened: ${cn}`, full_content: `I was there when it happened: ${cn}`,
+        decay_stage: 0, importance: 9, emotional_charge: "awe", last_accessed_turn: turn,
+        when_label: state.world.current_time,
+        where: (state.characters[id]?.location && state.world.places[state.characters[id].location!]?.name) || undefined,
       });
     }
-    shifts.push(`CANON: ${cn}`);
+    // seed the spread: a true, high-reach rumor so the wider world finds out as news, not by fiat
+    const origin = state.world.present.find((id) => id !== "char_player") ?? "char_player";
+    state.world.rumors.push({
+      id: uid("rum"), content: cn, truth: "true", salience: 10, origin_char: origin,
+      knowers: [...state.world.present], born_turn: turn, dead: false,
+    });
+    shifts.push(`CANON: ${cn} (the world will come to know)`);
   }
 
   for (const a of diff.appearance ?? []) {

@@ -8,7 +8,7 @@ import type {
 import { newSave, registerCharacter, rollback as doRollback, sanitize, uid } from "../engine/state";
 import { buildPreset, PRESET_LIST } from "../engine/presets";
 import { runTurn, syncPresence, resolvePlace } from "../engine/turn";
-import { runInterlude, embodyCharacter } from "../engine/continuity";
+import { runInterlude, embodyCharacter, condenseForNewChapter } from "../engine/continuity";
 import { seedDrive } from "../engine/drives";
 import { FORGE_SYSTEM, OPENING_SYSTEM, NEWSEASON_SYSTEM, buildPortraitPrompt, buildScenePrompt, stablePrefix, volatileDigest } from "../engine/prompts";
 import { formatTime, parseTime } from "../engine/time";
@@ -135,13 +135,16 @@ export const api = {
       name: g.world_bible?.name || `${s.world_bible.name} — Next Chapter`,
     };
     const ns = newSave(bible.name, bible);
-    // player carries forward, with their journey folded in
+    // player carries forward COMPLETE: full memory, full traits, nothing dropped or sanitized.
+    // A new chapter is a time-skip, not a personality wipe — who they became persists entirely.
+    const playerCarry = condenseForNewChapter(player, s.memory["char_player"], s.traits["char_player"]);
     registerCharacter(ns, {
       ...player, character_id: "char_player",
-      background: `${player?.background ?? ""} ${g.player?.background_addition ?? ""}`.trim(),
+      background: `${player?.background ?? ""} ${g.player?.background_addition ?? ""}`.replace(/\s+/g, " ").trim(),
       drive: undefined, drive_queue: [],
     });
-    ns.memory["char_player"].core = s.memory["char_player"].core.slice(-3);
+    ns.memory["char_player"] = { ...playerCarry.carried_memory, character_id: "char_player" }; // full memory intact
+    ns.traits["char_player"] = playerCarry.carried_traits;                                       // full traits intact
 
     // place
     const lid = uid("loc");
@@ -149,15 +152,18 @@ export const api = {
     ns.world.player_location = lid;
     ns.characters["char_player"].location = lid;
 
-    // surviving cast, with evolved background + relationships baked in
+    // surviving cast carry forward COMPLETE — full memory, full traits, full identity. The
+    // background_addition is APPENDED as a "where they ended up" note, never replacing who they are.
     for (const c of (g.cast ?? [])) {
       if (c.still_present === false || !c.name) continue;
       const prev = Object.values(s.characters).find((x) => x.name.toLowerCase() === c.name.toLowerCase());
+      const carry = prev ? condenseForNewChapter(prev, s.memory[prev.character_id], s.traits[prev.character_id]) : { carried_memory: { character_id: "", core: [], episodic: [], beliefs: [], knows: [] } as any, carried_traits: [] as any[] };
       const cid = registerCharacter(ns, {
         name: c.name,
         age: prev?.age ?? 30,
         appearance_facts: prev?.appearance_facts ?? "",
-        background: `${prev?.background ?? ""} ${c.background_addition ?? ""}`.trim(),
+        background: `${prev?.background ?? ""} ${c.background_addition ?? ""}`.replace(/\s+/g, " ").trim(),
+        life_history: prev?.life_history ?? "",          // the accreted defining-moments carry verbatim
         core_traits: prev?.core_traits ?? [],
         values: prev?.values ?? [],
         speech_pattern: prev?.speech_pattern ?? "plain",
@@ -168,7 +174,8 @@ export const api = {
         drive: c.new_drive ? { goal: c.new_drive, progress: 0, priority: 1, updated_turn: 1 } : undefined,
       });
       ns.world.edges.push({ from: cid, to: "char_player", warmth: clampNum(c.warmth_to_player, -100, 100), trust: clampNum(c.trust_to_player, -100, 100), power: 0, notes: "carried from the last chapter", updated_turn: 1 });
-      ns.memory[cid].core = [`${c.background_addition ?? ""}`].filter(Boolean);
+      ns.memory[cid] = { ...carry.carried_memory, character_id: cid }; // full memory intact — nothing stripped
+      ns.traits[cid] = carry.carried_traits;                            // full traits intact
     }
     // carry canon forward (the world-altering facts still happened)
     ns.world.canon = [...(s.world.canon ?? [])].slice(-12);
@@ -343,6 +350,28 @@ export const api = {
     return clientView(s);
   },
 
+  /** Player control over a character's role: 'background' demotes from central to a low-footprint
+   *  background figure; 'away' removes them from the story (departed) and the current scene; 'restore'
+   *  brings a departed character back as active. Lets the player fix the engine over-promoting someone. */
+  setCharacterStatus: async (id: string, char_id: string, action: "background" | "away" | "restore" | "central"): Promise<ClientSave> => {
+    const s = await need(id);
+    const c = s.characters[char_id];
+    if (!c || char_id === "char_player") throw new Error("cannot change this character");
+    if (action === "background") {
+      c.central = false; c.tracked = false; c.drive = undefined; c.drive_queue = [];
+    } else if (action === "away") {
+      c.status = "departed"; c.central = false; c.tracked = false; c.drive = undefined; c.drive_queue = [];
+      s.world.present = s.world.present.filter((p) => p !== char_id); // leave the scene now
+    } else if (action === "restore") {
+      c.status = "active";
+    } else if (action === "central") {
+      c.central = true; c.tracked = true; c.status = "active";
+      if (!c.drive) { const d = seedDrive(s, char_id); if (d) c.drive = d; }
+    }
+    await putSave(s);
+    return clientView(s);
+  },
+
   setTracked: async (id: string, char_id: string, tracked: boolean): Promise<ClientSave> => {
     const s = await need(id);
     const c = s.characters[char_id];
@@ -369,7 +398,7 @@ export const api = {
     const s = await need(id);
     const c = s.characters[char_id];
     if (!c) throw new Error("unknown character");
-    c.portrait_url = await generateImage(buildPortraitPrompt(s, char_id), s.model_settings.image_model);
+    c.portrait_url = await generateImage(buildPortraitPrompt(s, char_id), s.model_settings.image_model, [], "portrait");
     await putSave(s);
     return { url: c.portrait_url, save: clientView(s) };
   },
@@ -382,7 +411,7 @@ export const api = {
     const refs = ["char_player", ...s.world.present]
       .map((cid) => s.characters[cid]?.portrait_url)
       .filter((u): u is string => !!u && u.startsWith("data:"));
-    entry.illustration_url = await generateImage(buildScenePrompt(s, entry.summary), s.model_settings.image_model, refs);
+    entry.illustration_url = await generateImage(buildScenePrompt(s, entry.summary), s.model_settings.image_model, refs, "landscape");
     await putSave(s);
     return { url: entry.illustration_url, save: clientView(s) };
   },
@@ -471,13 +500,9 @@ export const api = {
 
   // ───────────────────────────── interview (hiring work-sample) ─────────────────────────────
 
-  /** Extract a manager RoleSpec from a pasted job description. */
   extractRole: (jd: string, model?: string): Promise<RoleSpec> => engExtractRole(jd, model),
-
-  /** Extract a neutral report baseline from a pasted job description (personality added separately). */
   extractReport: (jd: string, model?: string): Promise<Partial<ReportSpec>> => engExtractReport(jd, model),
 
-  /** Turn-0: build the locked interview save. Returns the new ClientSave. */
   buildInterview: async (input: {
     role: RoleSpec; reports: ReportSpec[];
     opening_message: string; opening_situation: string; end_state_note: string;
@@ -498,7 +523,6 @@ export const api = {
     return clientView(s);
   },
 
-  /** Persist a response's timing (called by the runner after each candidate turn). */
   recordTiming: async (id: string, timing: ResponseTiming): Promise<ClientSave> => {
     const s = await need(id);
     s.interview_timings = [...(s.interview_timings ?? []), timing];
@@ -506,7 +530,6 @@ export const api = {
     return clientView(s);
   },
 
-  /** Mark the locked clock as started (called when the candidate begins their first response). */
   startClock: async (id: string): Promise<number> => {
     const s = await need(id);
     if (s.interview_clock_started_ms == null) {
@@ -516,7 +539,6 @@ export const api = {
     return s.interview_clock_started_ms!;
   },
 
-  /** Run the end-gate grader. */
   gradeInterview: async (id: string): Promise<{ report: InterviewReport; save: ClientSave }> => {
     const s = await need(id);
     const report = await engGradeInterview(s, s.interview_timings ?? []);
@@ -525,7 +547,6 @@ export const api = {
     return { report, save: clientView(s) };
   },
 
-  /** Verify the reviewer-scope password against the stored salted hash. */
   verifyScopes: async (id: string, password: string): Promise<boolean> => {
     const s = await need(id);
     if (!s.interview?.scopes?.enabled) return false;
@@ -541,15 +562,23 @@ export interface TurnEvents {
   onError?: (message: string) => void;
 }
 
-/** The turn loop, run locally. Same signature the views already use. */
-export async function streamTurn(saveId: string, action: string, mode: ActionMode, ev: TurnEvents, opts?: { ground?: boolean }): Promise<void> {
+/** The turn loop, run locally. Same signature the views already use.
+ *  When opts.observe is set, the turn runs with no player action: the world and
+ *  the player's own character act on their own, and you watch. */
+export async function streamTurn(saveId: string, action: string, mode: ActionMode, ev: TurnEvents, opts?: { ground?: boolean; observe?: boolean }): Promise<void> {
   try {
     const s = await need(saveId);
-    await runTurn(s, action, {
+    const observe = !!opts?.observe;
+    // In observe mode there is no player action; the engine is told to advance
+    // the scene on its own, moving every actor (including the player's vessel).
+    const act = observe
+      ? "[OBSERVER] The player takes no action and only watches. Advance the scene on its own: let every present character — INCLUDING the player's own character — act, speak, and pursue their drives as they naturally would in this moment. Do not wait for the player. Move the story forward one concrete beat."
+      : action;
+    await runTurn(s, act, {
       onPhase: (p) => ev.onPhase?.(p),
       onDelta: (t) => ev.onDelta?.(t),
       onMeta: (m) => ev.onMeta?.(m as Record<string, unknown>),
-    }, mode, opts);
+    }, observe ? "story" : mode, opts);
     await putSave(s);
     ev.onDone?.(clientView(s));
   } catch (e: any) {

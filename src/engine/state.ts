@@ -49,7 +49,7 @@ export function newSave(name: string, bible: WorldBible): SaveState {
       player_location: "", money: "", present: [], places: {}, canon: [],
       threads: [], consequences: [], clocks: [], norms: [], rumors: [], edges: [],
     },
-    characters: {}, traits: {}, condition: {}, memory: {},
+    characters: {}, traits: {}, condition: {}, memory: {}, minds: {},
     history: [], telemetry: [], pressure_trace: [], records: [], snapshots: [],
   };
 }
@@ -83,6 +83,7 @@ export function sanitize(state: SaveState): SaveState {
   state.world.focus ??= null;
   for (const c of Object.values(state.condition ?? {})) (c as any).condition_age ??= {};
   state.telemetry ??= []; state.pressure_trace ??= []; state.snapshots ??= []; state.records ??= [];
+  state.minds ??= {};
   for (const id of Object.keys(state.characters)) {
     state.condition[id] ??= blankCondition();
     state.traits[id] ??= [];

@@ -170,7 +170,7 @@ export function decidePressure(input: PressureInput): PressureVerdict {
 }
 
 /** Compact directive injected into the narrator's volatile digest. */
-export function pressureDirective(v: PressureVerdict, palette?: string[], tension?: number): string {
+export function pressureDirective(v: PressureVerdict, palette?: string[], tension?: number, tier: PowerTier = "mortal"): string {
   const lines = [`PRESSURE ${v.pressure}/10 (${v.band}) — source: ${v.source}.`];
   if ((tension ?? 5) <= 0) {
     lines.push("TENSION 0 — THE WORLD IS AT REST. Do NOT introduce any new threat, problem, complication, arrival, or background development. Nothing new presses on the player this turn. Render the scene and the people in it responding naturally to what the player does — let it breathe. A quiet, uneventful beat is not only allowed, it is correct. Only continue something the player themselves set in motion.");
@@ -183,6 +183,44 @@ export function pressureDirective(v: PressureVerdict, palette?: string[], tensio
   if (v.due_consequence) lines.push(`A scheduled consequence reaches the scene NOW: ${v.due_consequence.description}`);
   if (v.focus_event && v.focus_mode === "build") lines.push(`FOCUS (building toward "${v.focus_event}"): bend this scene toward it; keep motion moving steadily in its direction. Do NOT introduce new unrelated threats, subplots, or chaos that would sideline it; let smaller frictions resolve quickly so the throughline stays clear. The player is driving toward this — honor it.`);
   if (v.focus_event && v.focus_mode === "active") lines.push(`FOCUS (now inside "${v.focus_event}"): the event has arrived — this is the situation now. Stakes are high and immediate; let consequences hit hard and fast within this event. Keep the scene centered on it; do not wander off into unrelated calm.`);
-  if (palette?.length) lines.push(`Draw pressure only from: ${palette.join("; ")}.`);
+  // Tier nudge (NOT a behavior script): at high power, a martial/institutional threat against the
+  // protagonist is a category error. We don't prescribe how mortals act — that emerges from their
+  // own state (terror pins relaxation low; a clenched person flatters, lies, schemes, capitulates
+  // through the perception gate). We only steer the narrator off the wrong reflex.
+  if ((tension ?? 5) > 0) {
+    if (tier === "cosmic") {
+      lines.push(`The protagonist is beyond any threat this world can field, and everyone present knows it. Do not invent martial or institutional threats against them (no troops sent, no hunters dispatched, no "the Empire is coming") — that is a category error. Pressure here is the mortals' own reaction to power they cannot resist; let that reaction come from each character's state and relationship to the player, not from a script.`);
+    } else if (tier === "mythic") {
+      lines.push(`The protagonist outclasses ordinary threats and the people near them sense it. A direct martial challenge should be rare and only if genuinely novel; otherwise pressure is consequence and reaction, drawn from each character's own state.`);
+    } else if (palette?.length) {
+      lines.push(`Draw pressure only from: ${palette.join("; ")}.`);
+    }
+  } else if (palette?.length) {
+    lines.push(`Draw pressure only from: ${palette.join("; ")}.`);
+  }
   return lines.join(" ");
+}
+
+export type PowerTier = "mortal" | "empowered" | "mythic" | "cosmic";
+
+/** How far past mortal the protagonist has scaled. A light gate on the tier nudge above — NOT a
+ *  behavior driver (behavior emerges from the relaxation kernel). god_mode lifts you above
+ *  ordinary threat; visible reality-breaking acts read as cosmic. */
+export function detectPowerTier(godMode: boolean, recentText: string): PowerTier {
+  const t = recentText.toLowerCase();
+  const cosmic = [
+    /transcend\w* (its|their|the)? ?(own )?universe/, /\bxeelee\b/, /unm?ade? (a|the) (sun|star|world|planet|galaxy)/,
+    /destroy(ed|s)? (a|the) (sun|star|planet|galaxy)/, /stopped time/, /across the galaxy/, /every imperial/,
+    /folded space/, /reality (itself )?(bent|obeyed|reshaped)/, /\bgodlike\b|\bomnipotent\b|like a god\b/,
+    /rewrote? (reality|the world|physics)/, /beyond (mortal|human) (comprehension|category)/,
+  ].some((re) => re.test(t));
+  const mythic = [
+    /killed everyone/, /raised the dead/, /mass(acre|-kill)/, /levitat\w+ the/,
+    /leveled (a|the) (building|city|block)/, /with (a|his|her|their) (mind|hand|will)/,
+    /no one could (stop|touch|harm) (him|her|them)/, /impervious|invulnerable|untouchable/,
+  ].some((re) => re.test(t));
+  if (cosmic) return "cosmic";
+  if (mythic) return godMode ? "cosmic" : "mythic";
+  if (godMode) return "mythic";
+  return "mortal";
 }

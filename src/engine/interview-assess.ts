@@ -22,6 +22,24 @@ import { summarizeTiming } from "./interview-timing";
 import { stablePrefix } from "./prompts";
 import { buildMessages, complete, safeJson } from "../llm";
 
+/** A report's final theory-of-mind about the candidate: what they believe the
+ *  candidate feels toward them, how far that is from the truth, and any misread
+ *  they're still carrying. Correcting a misread is a core management signal, so
+ *  the grader sees the gap explicitly. Returns "" when their read is accurate. */
+function perceptionGap(state: SaveState, id: string): string {
+  const b = state.minds?.[id]?.about?.find((x: any) => x.target === "char_player");
+  if (!b) return "";
+  const edge = state.world.edges.find((e) => e.from === id && e.to === "char_player");
+  const trueWarmth = edge?.warmth ?? 0;
+  const gap = Math.abs(trueWarmth - b.predicted_warmth);
+  const bits: string[] = [];
+  if (b.held_false) bits.push(`STILL carries a misread — ${b.held_false} (the candidate never corrected this)`);
+  else if (gap > 25) bits.push(`misreads the candidate (off by ~${Math.round(gap)} pts: reads them as ${b.predicted_stance === "ally" ? "warmer" : b.predicted_stance === "rival" ? "more hostile" : "an unknown"} than the truth)`);
+  if (b.surprise > 0.45) bits.push("ended the session freshly thrown by something the candidate did");
+  if (b.confidence < 0.25) bits.push("never got a clean read on the candidate");
+  return bits.length ? bits.join("; ") : "";
+}
+
 const DECISION_SUPPORT_NOTICE =
   "This report is decision-support evidence for a trained human reviewer. It is NOT a hire/no-hire decision and must not be used as an automated gate. Scores reflect behavior within a simulation and should be weighed alongside other evidence. Validate this instrument against on-the-job outcomes and audit it for adverse impact before using it in selection.";
 
@@ -91,6 +109,8 @@ SCORE BY MATCHING ANCHORS. For each competency you are given behavioral anchors 
 
 USE THE TIMING SIGNAL FOR COMPOSURE. You are given a pacing summary. Pausing to think before a high-stakes reply is a POSITIVE composure signal (the candidate took a breath under tension). Firing back fast exactly when pressure spiked is a negative one. Pure typing speed is irrelevant — never treat slow typing as a deficiency.
 
+WEIGH HOW THEY MANAGED PERCEPTION. Each report holds a private read of the candidate that can diverge from the truth — and a report may END the session still misreading the candidate or carrying a flat-out false belief about them ("convinced the candidate has turned on them"). Noticing a report is misreading you and actively correcting it is a core management act: it counts toward problem_diagnosis (did they detect the misread), communication and influence (did they close the gap), and fairness (did they leave someone wrongly believing they were treated badly). A report left carrying an uncorrected misread at the end is a real cost — name it and let it pull the relevant scores down, citing the turn where the misread formed and went unaddressed. A candidate who turned a hostile or suspicious read into an accurate one demonstrated the skill directly — credit it.
+
 NAME THE STYLE NEUTRALLY, JUDGE FIT SEPARATELY. Place the candidate on two neutral axes (directive↔participative, task↔relationship) as numbers, name the primary style, and report how it SHIFTS under pressure (the simulation traces pressure explicitly). Directive is not worse than participative — it is better or worse FOR THIS role and team, and that fit judgment is its own score.
 
 BE DESCRIPTIVE, NOT A VERDICT. Do not output a hire/no-hire recommendation. Produce evidence: scores, cited moments, what worked, what to change, and a reviewer paragraph. A human decides.
@@ -144,7 +164,9 @@ function buildDigest(state: SaveState, cfg: InterviewConfig, timings: ResponseTi
       const drive = c.drive?.goal ? `still wants: ${c.drive.goal}${c.drive.blocker ? ` (blocked: ${c.drive.blocker})` : ""}` : "no active drive";
       const psy = cond?.psyche;
       const openness = psy ? `${psy.mood} (relaxation ${psy.relaxation >= 0 ? "+" : ""}${psy.relaxation}, ${psy.state})` : "—";
-      return `• ${c.name} — openness now: ${openness}; toward candidate: warmth Δ${wΔ >= 0 ? "+" : ""}${wΔ}, trust Δ${tΔ >= 0 ? "+" : ""}${tΔ}; ${drive}`;
+      const gap = perceptionGap(state, id);
+      const gapLine = gap ? `\n    ↳ their read of the candidate: ${gap}` : "";
+      return `• ${c.name} — openness now: ${openness}; toward candidate: warmth Δ${wΔ >= 0 ? "+" : ""}${wΔ}, trust Δ${tΔ >= 0 ? "+" : ""}${tΔ}; ${drive}${gapLine}`;
     })
     .join("\n");
 

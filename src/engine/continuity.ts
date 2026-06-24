@@ -14,11 +14,10 @@
  *       memories, bonds, wounds, traits, wants. Your old self remains in the
  *       world as a person the world remembers.
  */
-import type { SaveState, TurnTelemetry } from "./types";
+import type { SaveState, TurnTelemetry, Identity, CharMemory, AcquiredTrait } from "./types";
 import { absMinutes, advance } from "./time";
-import { consolidateBackground, consolidateTraits, decayTraits, diffuseRumors, tickDrives } from "./social";
+import { consolidateBackground, consolidateTraits, decayTraits, diffuseRumors, tickDrives, tickPsyche } from "./social";
 import { regenerateDrives } from "./drives";
-import { tickUndertow } from "./undertow";
 import { addCondition } from "./turn";
 import { buildMessages, complete, safeJson } from "../llm";
 import { stablePrefix } from "./prompts";
@@ -50,9 +49,7 @@ export function simulateForward(state: SaveState, days: number, rng: () => numbe
 
   const rounds = Math.max(1, Math.round(days * 2)); // two world-rounds per day
   for (let r = 0; r < rounds; r++) {
-    const ut = tickUndertow(state, rng);             // strategy + chaos + catastrophe, every round
-    report.drive_log.push(...ut.stances.slice(0, 2).map((st) => `${st.name} ${st.stance}s against ${st.vs}`));
-    report.drive_log.push(...ut.snaps);
+    for (const id of Object.keys(state.condition)) tickPsyche(state.condition[id].psyche); // kernel drift, per character
     report.drive_log.push(...tickDrives(state, rng));
     report.drive_log.push(...regenerateDrives(state, rng)); // tracked idle NPCs get fresh wants across the days
     report.rumor_log.push(...diffuseRumors(state, rng));
@@ -222,10 +219,32 @@ export async function runInterlude(state: SaveState, days: number, ev: { onPhase
 }
 
 /**
- * VESSELS — leave your character, become another.
- * Full id-swap: the chosen character's id becomes "char_player" and your old
- * vessel gets a fresh id, across EVERY ledger. You inherit their everything.
+ * NEW-CHAPTER CONDENSATION — carry who a character BECAME into the next chapter.
+ *
+ * The new-chapter flow used to drop acquired traits entirely and replace each character's
+ * whole memory with a single line of background. This distills the real thing: a character's
+ * traits, the heaviest episodic memories, their formed beliefs, and any accreted life_history
+ * are folded into (a) a compact durable BACKGROUND paragraph and (b) a small set of preserved
+ * high-self-weight traits — the parts of identity that are load-bearing enough to persist a
+ * time-skip. Deterministic, zero tokens; the prose recap stays the player-facing layer, this is
+ * the mechanical inheritance underneath it.
  */
+export function condenseForNewChapter(ident: Identity, mem: CharMemory | undefined, traits: AcquiredTrait[] | undefined): {
+  carried_memory: CharMemory;      // the COMPLETE memory, carried intact — nothing dropped, nothing sanitized
+  carried_traits: AcquiredTrait[]; // the COMPLETE trait list, carried intact
+} {
+  // A new chapter is a time-skip, not a personality wipe. Who a character BECAME — every memory,
+  // every acquired trait, including the violent, the carnal, the dark, the appetites they developed
+  // — is exactly what should persist. We carry the full memory and full traits forward UNCHANGED.
+  // The only adjustment is resetting the trait reinforcement clock so decay measures from the new
+  // chapter's start rather than instantly aging everything across the skip.
+  const carried_traits = (traits ?? []).map((t) => ({ ...t, last_reinforced_turn: 1 }));
+  const carried_memory: CharMemory = mem
+    ? { ...mem, episodic: mem.episodic.map((m) => ({ ...m, last_accessed_turn: 1 })) }
+    : { character_id: ident.character_id, core: [], episodic: [], beliefs: [], knows: [] };
+  return { carried_memory, carried_traits };
+}
+
 export function embodyCharacter(state: SaveState, targetId: string): { ok: boolean; error?: string } {
   if (targetId === "char_player") return { ok: false, error: "you are already wearing this one" };
   if (!state.characters[targetId]) return { ok: false, error: "no such character" };

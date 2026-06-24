@@ -31,8 +31,11 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 export function applyEdgeDelta(edges: SocialEdge[], d: { from: string; to: string; warmth_delta: number; trust_delta: number; power_delta: number; note?: string; roles_set?: string[] }, turn: number) {
   const e = getEdge(edges, d.from, d.to);
   e.warmth = clamp(e.warmth + clamp(d.warmth_delta, -15, 15), -100, 100);
-  e.trust = clamp(e.trust + clamp(d.trust_delta, -20, 20), -100, 100); // trust breaks faster than it builds: asymmetry below
-  if (d.trust_delta > 0) e.trust = clamp(e.trust - d.trust_delta + d.trust_delta * 0.6, -100, 100);
+  // trust breaks faster than it builds: positive deltas apply at 60% strength, negatives at full.
+  // Dampen the DELTA before applying it once (the old version added full then subtracted from the
+  // absolute value, which gave wrong results at the clamp ceiling).
+  const trustDelta = d.trust_delta > 0 ? d.trust_delta * 0.6 : d.trust_delta;
+  e.trust = clamp(e.trust + clamp(trustDelta, -20, 20), -100, 100);
   e.power = clamp(e.power + clamp(d.power_delta, -10, 10), -100, 100);
   if (d.note) e.notes = d.note.slice(0, 140);
   if (d.roles_set) e.roles = d.roles_set.map((r) => r.trim()).filter(Boolean).slice(0, 4);
@@ -91,10 +94,14 @@ export function tickPsyche(p: Psyche): void {
  *  per-turn (only on reflection / time skips), so a single scene can't move the core. */
 export function capMemory(episodic: EpisodicMemory[], cap = 60): EpisodicMemory[] {
   if (episodic.length <= cap) return episodic;
-  const sacred = episodic.filter((m) => m.importance >= 8);
-  const rest = episodic.filter((m) => m.importance < 8).slice().sort((a, b) => a.turn - b.turn);
+  const sacred = episodic.filter((m) => m.importance >= 8 || m.commitment_status === "pending");
+  const rest = episodic.filter((m) => !(m.importance >= 8 || m.commitment_status === "pending"));
   const room = Math.max(0, cap - sacred.length);
-  const keptRest = rest.slice(-room);
+  // Evict by a keep-score, not pure age: importance matters as much as recency, so a burst of
+  // trivial recent memories can't nuke a still-significant older one. Highest scores survive.
+  const maxTurn = Math.max(1, ...episodic.map((m) => m.turn));
+  const keepScore = (m: EpisodicMemory) => (m.importance / 10) * 0.6 + (m.turn / maxTurn) * 0.4;
+  const keptRest = rest.slice().sort((a, b) => keepScore(b) - keepScore(a)).slice(0, room);
   const keep = new Set<EpisodicMemory>([...sacred, ...keptRest]);
   return episodic.filter((m) => keep.has(m));
 }

@@ -82,10 +82,25 @@ function ScopesPanel({ save }: { save: ClientSave }) {
             const cond = save.condition[id];
             const edge = save.world.edges.find((e) => e.from === id && e.to === "char_player");
             const drive = save.characters[id]?.drive;
+            const belief = (save as any).minds?.[id]?.about?.find((b: any) => b.target === "char_player");
+            const trueWarmth = edge?.warmth ?? 0;
+            const gap = belief ? Math.abs(trueWarmth - belief.predicted_warmth) : 0;
+            const readNote = belief && (belief.held_false || gap > 20 || belief.surprise > 0.4)
+              ? (belief.held_false
+                  ? `carries a misread — wrongly ${String(belief.held_false).replace(/^is /, "")}`
+                  : gap > 20
+                    ? `misreads you (${Math.round(gap)} pts off — sees you as ${belief.predicted_stance === "ally" ? "warmer" : belief.predicted_stance === "rival" ? "more hostile" : "unknown"})`
+                    : "freshly thrown by something you did")
+              : belief ? "reads you accurately" : null;
             return (
               <div key={id} className="rounded-md p-2.5 text-[12.5px]" style={{ background: "var(--surface-2, rgba(255,255,255,0.05))" }}>
                 <span className="font-display">{c.name}</span>
                 <span style={{ color: "var(--text-mid)" }}> — mood {cond?.psyche?.mood ?? "—"} (relaxation {cond?.psyche?.relaxation ?? 0}); warmth {edge?.warmth ?? 0}, trust {edge?.trust ?? 0}{drive?.goal ? `; still wants: ${drive.goal}` : ""}</span>
+                {readNote && (
+                  <div className="mt-1 text-[11.5px]" style={{ color: readNote.startsWith("reads you accurately") ? "var(--text-lo, var(--text-mid))" : "#c8a35a" }}>
+                    ↳ their read of you: {readNote}
+                  </div>
+                )}
               </div>
             );
           })}

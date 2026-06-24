@@ -81,3 +81,20 @@ means it works at any path (user or project pages) with no per-repo change.
 ## Stack
 
 React 19 · Vite 6 · Tailwind 4 · Motion · IndexedDB (local saves) · OpenRouter.
+
+## Perception & misreads (the "reading the room" signal)
+
+Reports don't have perfect knowledge of the candidate. Each one builds a *private
+model* of how the candidate feels toward them, and that model can be wrong — a report
+can spend the session convinced the candidate has turned on them when they haven't, or
+misjudge a firm decision as hostility. This is the engine's information-asymmetry layer,
+and it's where the assessment's core skill lives.
+
+The grader treats **noticing and correcting a misread** as a first-class management act:
+it feeds problem diagnosis (did they detect it), communication and influence (did they
+close the gap), and fairness (did they leave someone wrongly feeling mistreated). A
+report left carrying an uncorrected false belief at the end is scored as a real cost.
+
+In the reviewer scopes (password-gated), each report shows *their read of the candidate*
+alongside the truth — so a reviewer can see at a glance whether the candidate noticed a
+report was misreading them and did anything about it.

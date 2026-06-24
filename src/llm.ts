@@ -4,7 +4,7 @@ import { getApiKey } from "./config";
 
 const OR_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-export interface Usage { prompt_tokens: number; completion_tokens: number }
+export interface Usage { prompt_tokens: number; completion_tokens: number; cached_tokens?: number; cost?: number }
 export interface LLMResult { text: string; usage: Usage; model: string }
 
 function key(): string {
@@ -53,7 +53,7 @@ async function once(messages: any[], model: string, json: boolean, maxTokens: nu
   if (!text) throw new Error("empty completion");
   return {
     text,
-    usage: { prompt_tokens: data.usage?.prompt_tokens ?? 0, completion_tokens: data.usage?.completion_tokens ?? 0 },
+    usage: { prompt_tokens: data.usage?.prompt_tokens ?? 0, completion_tokens: data.usage?.completion_tokens ?? 0, cached_tokens: data.usage?.prompt_tokens_details?.cached_tokens ?? 0, cost: data.usage?.cost ?? undefined },
     model: data.model ?? model,
   };
 }
@@ -89,7 +89,7 @@ export async function* completeStream(messages: any[], model: string, fallback: 
           const j = JSON.parse(payload);
           const delta = j.choices?.[0]?.delta?.content;
           if (delta) { full += delta; yield delta; }
-          if (j.usage) usage = { prompt_tokens: j.usage.prompt_tokens ?? 0, completion_tokens: j.usage.completion_tokens ?? 0 };
+          if (j.usage) usage = { prompt_tokens: j.usage.prompt_tokens ?? 0, completion_tokens: j.usage.completion_tokens ?? 0, cached_tokens: j.usage.prompt_tokens_details?.cached_tokens ?? 0, cost: j.usage.cost ?? undefined };
         } catch { /* keep-alive */ }
       }
     }
@@ -143,14 +143,24 @@ export function safeJson<T>(text: string, fallback: T): T {
   try { return JSON.parse(repairJson(ex)) as T; } catch { return fallback; }
 }
 
-export async function generateImage(prompt: string, model = "google/gemini-2.5-flash-image", refImages: string[] = []): Promise<string> {
+export async function generateImage(prompt: string, model = "google/gemini-2.5-flash-image", refImages: string[] = [], aspect: "portrait" | "landscape" | "square" = "landscape"): Promise<string> {
   // reference images (e.g. character portraits) are passed as image_url content blocks;
   // models that support multimodal input use them for consistency, others ignore them.
-  const content: any[] = [{ type: "text", text: prompt }];
+  // Aspect: the image models default to landscape/square, so we both (a) state the orientation
+  // forcefully in the text and (b) pass a generation hint where the routing supports it.
+  const ratio = aspect === "portrait" ? "2:3" : aspect === "square" ? "1:1" : "16:9";
+  const orient = aspect === "portrait"
+    ? "IMPORTANT: vertical portrait orientation, tall 2:3 aspect ratio, taller than wide. "
+    : aspect === "square" ? "Square 1:1 aspect ratio. " : "";
+  const content: any[] = [{ type: "text", text: orient + prompt }];
   for (const url of refImages.slice(0, 4)) if (url?.startsWith("data:") || url?.startsWith("http")) content.push({ type: "image_url", image_url: { url } });
   const res = await fetch(OR_URL, {
     method: "POST", headers: headers(),
-    body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+    body: JSON.stringify({
+      model, messages: [{ role: "user", content }], modalities: ["image", "text"],
+      // generation hints — honored by routings that support image config, ignored otherwise
+      image_config: { aspect_ratio: ratio },
+    }),
   });
   if (!res.ok) throw new Error(`image gen HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const j: any = await res.json();

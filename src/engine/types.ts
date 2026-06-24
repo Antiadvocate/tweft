@@ -22,6 +22,7 @@ export interface ModelSettings {
   lean_mode?: boolean;            // compressed system prompts + present/tracked-only cast (lower tokens, slightly less rich)
   token_budget?: number;          // when set (>0), trim the per-turn context to roughly this many input tokens, shedding least-relevant first
   tension?: number;               // 0–10 master dial for how much the world throws at you. 0 = the engine originates NOTHING new (no new threads/consequences/clocks/drives); the world only responds to what you do. Higher = more friction, faster escalation. Default 5.
+  max_central_characters?: number; // cap on CENTRAL (full-fidelity, tracked) characters. Default 6. Beyond this, new characters become "non-central" — minimal-footprint background figures (environment-like) with simple handling, unless promoted. Tunable.
 }
 
 export interface WorldBible {
@@ -119,6 +120,7 @@ export interface Identity {
   drive?: NPCDrive;           // the ACTIVE pursuit
   drive_queue?: NPCDrive[];   // up to 2 backup goals; promoted when the active one stalls/completes and the scene is calm
   tracked?: boolean;          // followed in the long game: keeps regenerating drives, persists offscreen
+  central?: boolean;          // a CENTRAL character: full fidelity (memory, traits, drives, portrait, theory-of-mind). When false, the character is "non-central" — a background/environment figure with minimal token footprint and simple handling. The cap (max_central_characters, default 6) governs how many can be central at once; overflow registers as non-central until promoted.
   status?: "active" | "dead" | "departed"; // dead = killed/gone for good; departed = left the story (moved away, exiled). active is default.
   exit_turn?: number;         // when they died/left
   exit_note?: string;         // how they exited ("killed by the blast", "fled the city")
@@ -172,11 +174,13 @@ export interface Condition {
 
 export interface EpisodicMemory {
   turn: number;
-  content: string;
-  importance: number;          // 1–10 (poignancy)
+  content: string;             // the current (possibly degraded) recollection — rewritten as it fades
+  full_content?: string;       // the original vivid recollection, kept once so degradation has a source
+  importance: number;          // 1–10 (poignancy) — high importance decays slower
   emotional_charge: string;
   when_label?: string;         // in-world time it happened ("Day 5, 18:30") — gives memories real temporal distance
-  where?: string;              // place name where it happened
+  where?: string;              // place name where it happened — drops out as the memory fades (reconstructable from neighbors)
+  decay_stage?: 0 | 1 | 2 | 3; // 0 vivid (somatic detail) → 1 gist+person+place → 2 gist+person (place lost) → 3 person+bare gist
   scheduled_time?: string;     // commitments: "Day 3, 19:00"
   commitment_status?: "pending" | "fulfilled" | "missed" | "cancelled";
   folded?: boolean;            // a high-salience memory already folded into the character's background (identity consolidation)
@@ -196,6 +200,28 @@ export interface CharMemory {
   episodic: EpisodicMemory[];
   beliefs: Belief[];           // semantic layer from reflection
   knows: string[];             // char_ids known
+}
+
+// ───────────────────────────── theory of mind (active-inference belief layer) ─────────────────────────────
+
+/** What character A privately believes about character B — a model that can be WRONG.
+ *  Behavior is driven off this model, not ground truth; the GAP between prediction and
+ *  what actually happens (prediction error) is the dramatic resource: it feeds the cusp
+ *  load term, surfaces to the narrator, and biases idle drives toward finding out. */
+export interface BeliefAbout {
+  target: string;              // char_id this is a model OF (often "char_player")
+  predicted_warmth: number;    // what A expects B feels toward A, [-100,100] — may diverge from the true edge
+  predicted_stance: "ally" | "rival" | "unknown"; // A's read of where B stands
+  held_false?: string;         // ONE concrete thing A wrongly believes about B ("thinks I betrayed them") — the misunderstanding that can drive a scene
+  surprise: number;            // 0..1 running prediction-error magnitude; decays in calm, spikes on violated expectation
+  confidence: number;          // 0..1 how sure A is of this model; low confidence + high stakes → epistemic drive
+  updated_turn: number;
+}
+
+/** A's whole theory of mind: sparse — only the people A actually models (player + sharpest tie). */
+export interface MindModel {
+  character_id: string;        // the BELIEVER
+  about: BeliefAbout[];
 }
 
 // ───────────────────────────── world ─────────────────────────────
@@ -264,6 +290,8 @@ export interface TurnTelemetry {
   pressure: number;
   pressure_source: string;
   narrator_tokens_in: number;
+  cached_tokens?: number;      // input tokens served from prompt cache (billed ~0.25x) — measures cache effectiveness
+  turn_cost?: number;          // actual $ cost of this turn from the provider, when reported
   narrator_tokens_out: number;
   simulator_tokens_in: number;
   simulator_tokens_out: number;
@@ -281,6 +309,10 @@ export interface TurnTelemetry {
 }
 
 export type ActionMode = "do" | "say" | "think" | "story";
+
+/** The four QRE stances an agent can play in the strategy layer. Canonical home here so
+ *  both the undertow (which computes them) and the mind layer (which reads them) can import. */
+export type Stance = "press" | "maneuver" | "hold" | "yield";
 
 export interface TurnHistoryEntry {
   turn: number;
@@ -310,6 +342,7 @@ export interface SaveState {
   traits: Record<string, AcquiredTrait[]>;
   condition: Record<string, Condition>;
   memory: Record<string, CharMemory>;
+  minds?: Record<string, MindModel>;   // theory-of-mind: per-character private models of others (active-inference belief layer)
   history: TurnHistoryEntry[];
   vessel_history?: { turn: number; from_name: string; to_name: string; time_label: string }[]; // bodies the player has worn
   undertow?: unknown;          // continuous substrate state (phases, tangent, cusps) — engine-internal
