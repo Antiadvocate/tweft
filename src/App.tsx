@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Moon, Sun, ArrowLeft, BarChart3 } from "lucide-react";
+import { Moon, Sun, ArrowLeft, BarChart3, Settings2 } from "lucide-react";
 import { api, type ClientSave, type InterviewReport } from "./lib/api";
 import { hasApiKey, setApiKey } from "./config";
 import AssessmentLibrary from "./views/AssessmentLibrary";
 import InterviewBuilder from "./views/InterviewBuilder";
 import Assessment from "./views/Assessment";
+import AssessmentSettings from "./views/AssessmentSettings";
 import InterviewReportView from "./views/InterviewReport";
 import { applyProseFont } from "./lib/theme";
 
-type Mode = "library" | "build" | "run" | "report";
+type Mode = "library" | "build" | "run" | "report" | "settings";
 
 export default function App() {
   const [save, setSave] = useState<ClientSave | null>(null);
@@ -39,6 +40,7 @@ export default function App() {
   const title =
     mode === "build" ? "New assessment"
     : mode === "run" && save ? (save.world_bible.name)
+    : mode === "settings" ? "Settings"
     : mode === "report" ? "Assessment report"
     : "Assessments";
 
@@ -85,6 +87,11 @@ export default function App() {
                 <BarChart3 size={11} /> report
               </button>
             )}
+            {(save && (mode === "run" || mode === "settings")) || mode === "library" ? (
+              <button className="chip" onClick={() => setMode(mode === "settings" ? (save ? "run" : "library") : "settings")}>
+                <Settings2 size={11} /> {mode === "settings" ? "back" : "settings"}
+              </button>
+            ) : null}
             <button className="chip" onClick={() => setLightMode((v) => !v)} aria-label="theme">
               {lightMode ? <Moon size={11} /> : <Sun size={11} />}
             </button>
@@ -114,6 +121,13 @@ export default function App() {
               transition={{ duration: 0.2 }}>
               <Assessment save={save} setSave={setSave}
                 onGraded={(r, s) => { setReport(r); setSave(s); setMode("report"); }} />
+            </motion.div>
+          )}
+          {mode === "settings" && (
+            <motion.div key="settings" className="absolute inset-0"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22 }}>
+              <AssessmentSettings save={save} setSave={setSave} />
             </motion.div>
           )}
           {mode === "report" && save && report && (
