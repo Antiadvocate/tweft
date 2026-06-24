@@ -33,7 +33,7 @@ const VALID_COMPS: Competency[] = [
   "influence", "developing_people", "emotional_regulation", "fairness_integrity",
 ];
 
-export async function extractRole(jd: string, model = "deepseek/deepseek-chat-v3-0324"): Promise<RoleSpec> {
+export async function extractRole(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<RoleSpec> {
   const msgs = buildMessages(ROLE_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
   const out = await complete(msgs, model, "google/gemini-2.0-flash-001", true, 1500);
   const g = safeJson<any>(out.text, {});
@@ -51,7 +51,7 @@ const REPORT_EXTRACT_SYSTEM = `You read a job description for an INDIVIDUAL role
 {"role_title":"","job_summary":"2-3 sentences on what they do","experience":"a plausible experience level for this role","is_lead":false,"is_high_performer":false,"suggested_traits":["3-5 neutral professional traits that fit the role"],"speech_pattern":"how someone in this role tends to communicate"}
 Do NOT invent hostility, grievances, or personality conflict — those are authored separately by the designer. Keep this a neutral, professional baseline. is_lead is true only if the role manages other people.`;
 
-export async function extractReport(jd: string, model = "deepseek/deepseek-chat-v3-0324"): Promise<Partial<ReportSpec>> {
+export async function extractReport(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<Partial<ReportSpec>> {
   const msgs = buildMessages(REPORT_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
   const out = await complete(msgs, model, "google/gemini-2.0-flash-001", true, 1500);
   const g = safeJson<any>(out.text, {});
@@ -100,8 +100,10 @@ export async function assembleInterview(input: InterviewBuildInput): Promise<Sav
     political_situation: input.opening_situation || "A team under pressure with real work to get done.",
     narrator_direction:
       "This is a hiring work-sample assessment. The PLAYER is the candidate, acting as the manager. Everyone else is a report or peer with a fixed, authored disposition. " +
+      
       "WRITE LIKE A WORKPLACE TRANSCRIPT, NOT A NOVEL. Keep prose plain, clear, and easy to read for anyone. When a report speaks, attribute it simply on its own line — e.g. Maya: \"I don't think we should ship Friday.\" Use short paragraphs. Describe actions and reactions plainly (\"Devin crosses his arms and looks at the floor\") without literary flourish, metaphor, or scene-setting prose. No omniscient narration, no interior monologue for the characters, no chapter-book style. Think meeting notes that capture who said what and how people reacted. " +
-      "Let the reports behave consistently with their authored personality and hidden driver — including authored skepticism or friction where specified — but never melodrama, never plot twists. The candidate must do the reading of the room themselves: do not have characters announce their inner state. Each turn, the situation should move in response to what the candidate actually does.",
+      "Write character movements, actions, that would be noticed by the player in a real life situation 'Sally made a face that looked annoyed' or 'Mike walked away in a hurry'. WIthout literary flourish or internal dialogue of intent of the action, describe it within the narrative" +
+      "No every character is related to the objective, some are simply there to sideline the player with coffee talk. Allow normal interactions as well. Let the reports behave consistently with their authored personality and hidden driver — including authored skepticism or friction where specified — but never melodrama, never plot twists. The candidate must do the reading of the room themselves: do not have characters announce their inner state. Each turn, the situation should move in response to what the candidate actually does.",
     god_mode: false,
     difficulty_profile: { lethality: "low", friction_density: "balanced", antagonist_aggression: "slow_burn", protagonist_competence: "average" },
     forbidden_as_primary: ["violence", "romance", "the supernatural", "plot twists"],
