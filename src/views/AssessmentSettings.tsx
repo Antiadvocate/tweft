@@ -6,7 +6,7 @@ import { getApiKey, setApiKey } from "../config";
 /** A small curated list of OpenRouter models that work well for the simulation.
  *  Any slug can be typed in the custom field — this is just for convenience. */
 const MODEL_CHOICES: { slug: string; label: string; note: string }[] = [
-  { slug: "deepseek/deepseek-chat-v3-0324", label: "DeepSeek V3", note: "cheap, capable — the default" },
+  { slug: "deepseek/deepseek-v4-pro", label: "DeepSeek V4", note: "cheap, capable — the default" },
   { slug: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash", note: "fast, inexpensive" },
   { slug: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", note: "stronger, still fast" },
   { slug: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet", note: "high quality, pricier" },
@@ -24,7 +24,7 @@ export default function AssessmentSettings({ save, setSave }: {
   setSave: (s: ClientSave) => void;
 }) {
   const [keyInput, setKeyInput] = useState(getApiKey());
-  const [primary, setPrimary] = useState(save?.model_settings.simulator_model ?? "deepseek/deepseek-chat-v3-0324");
+  const [primary, setPrimary] = useState(save?.model_settings.simulator_model ?? "deepseek/deepseek-v4-pro");
   const [fallback, setFallback] = useState(save?.model_settings.fallback_model ?? "google/gemini-2.0-flash-001");
   const [customPrimary, setCustomPrimary] = useState(
     save && !MODEL_CHOICES.some((m) => m.slug === save.model_settings.simulator_model) ? save.model_settings.simulator_model : ""
