@@ -163,7 +163,18 @@ export default function InterviewBuilder({ onCreated }: { onCreated: (id: string
               <ReportJDSeed onSeed={(jd) => seedReportFromJD(r.id, jd)} />
             </details>
             <input value={r.experience} onChange={(e) => setReport(r.id, { experience: e.target.value })} className="w-full rounded-lg p-2 text-[13px] mb-2" style={field} placeholder="Experience (e.g. 8 years, 3 on this team)" />
-            <input value={r.personality_traits.join(", ")} onChange={(e) => setReport(r.id, { personality_traits: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} className="w-full rounded-lg p-2 text-[13px] mb-2" style={field} placeholder="Personality traits, comma-separated (e.g. blunt, perfectionist, resents the reorg)" />
+<input 
+  value={r.personality_traits.join(", ")} 
+  onChange={(e) => {
+    const val = e.target.value;
+    // Split by comma, keep the raw parts so trailing commas/spaces stay alive in the input field
+    const traits = val.split(",").map((s) => s.trimStart()); // leaves trailing spaces alone
+    setReport(r.id, { personality_traits: traits });
+  }} 
+  className="w-full rounded-lg p-2 text-[13px] mb-2" 
+  style={field} 
+  placeholder="Personality traits, comma-separated (e.g. blunt, perfectionist, resents the reorg)" 
+/>
             <textarea value={r.disposition_to_manager} onChange={(e) => setReport(r.id, { disposition_to_manager: e.target.value })} rows={2} className="w-full rounded-lg p-2 text-[13px] mb-2" style={field} placeholder="Disposition toward a new manager — including any authored friction and its reason (e.g. 'skeptical; was passed over for the lead role')" />
             <textarea value={r.hidden_driver} onChange={(e) => setReport(r.id, { hidden_driver: e.target.value })} rows={2} className="w-full rounded-lg p-2 text-[13px] mb-2" style={field} placeholder="Hidden driver — what they really want or fear (surfaced only if the candidate diagnoses well; not stated outright)" />
             <div className="flex gap-4 items-center mb-2 text-[12px]" style={{ color: "var(--text-mid)" }}>
