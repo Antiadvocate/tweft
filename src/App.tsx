@@ -87,7 +87,7 @@ export default function App() {
                 <BarChart3 size={11} /> report
               </button>
             )}
-            {(save && (mode === "run" || mode === "settings")) || mode === "library" ? (
+            {(save && (mode === "run" || mode === "settings")) || mode === "library" || mode === "build" ? (
               <button className="chip" onClick={() => setMode(mode === "settings" ? (save ? "run" : "library") : "settings")}>
                 <Settings2 size={11} /> {mode === "settings" ? "back" : "settings"}
               </button>

@@ -16,7 +16,8 @@ import { buildMessages, complete, generateImage, safeJson } from "../llm";
 import { getSave, putSave, deleteSave as dbDelete, listSaves as dbList } from "../store";
 import {
   assembleInterview, extractRole as engExtractRole, extractReport as engExtractReport,
-  defaultTimeBudget, type InterviewBuildInput,
+  defaultTimeBudget, draftExampleScenario as engDraftExample,
+  type InterviewBuildInput, type ScenarioDraft,
 } from "../engine/interview-build";
 import { gradeInterview as engGradeInterview } from "../engine/interview-assess";
 import { verifyScopePassword } from "../engine/interview-timing";
@@ -36,6 +37,7 @@ export type {
 export {
   COMPETENCY_LABEL, COMPETENCY_ORDER, COMPETENCY_DEF, LEVEL_LABEL,
 } from "../engine/interview-types";
+export type { ScenarioDraft } from "../engine/interview-build";
 export type ActionMode = "do" | "say" | "story";
 
 export interface PresetInfo { id: string; name: string; blurb: string; era_theme: string }
@@ -507,7 +509,7 @@ export const api = {
     role: RoleSpec; reports: ReportSpec[];
     opening_message: string; opening_situation: string; end_state_note: string;
     objectives: ScenarioObjective[]; minutes: number; assumed_wpm: number;
-    scope_password?: string; organization_name?: string;
+    scope_password?: string; organization_name?: string; company_canon?: string[];
   }): Promise<ClientSave> => {
     const budget = defaultTimeBudget(input.minutes);
     budget.assumed_wpm = input.assumed_wpm;
@@ -516,11 +518,16 @@ export const api = {
       opening_message: input.opening_message, opening_situation: input.opening_situation,
       end_state_note: input.end_state_note, objectives: input.objectives,
       time_budget: budget, scope_password: input.scope_password,
-      organization_name: input.organization_name,
+      organization_name: input.organization_name, company_canon: input.company_canon,
     };
     const s = await assembleInterview(build);
     await putSave(s);
     return clientView(s);
+  },
+
+  /** Generate a complete example scenario as editable DRAFT fields (does NOT save) — for prefilling the builder. */
+  draftExample: async (jd?: string, minutes = 15, model?: string): Promise<ScenarioDraft> => {
+    return engDraftExample({ jd, minutes, model });
   },
 
   recordTiming: async (id: string, timing: ResponseTiming): Promise<ClientSave> => {
@@ -537,6 +544,13 @@ export const api = {
       await putSave(s);
     }
     return s.interview_clock_started_ms!;
+  },
+
+  /** Persist accumulated paused time (the clock freezes while the engine processes a turn). */
+  recordPause: async (id: string, pausedMs: number): Promise<void> => {
+    const s = await need(id);
+    s.interview_clock_paused_ms = pausedMs;
+    await putSave(s);
   },
 
   gradeInterview: async (id: string): Promise<{ report: InterviewReport; save: ClientSave }> => {

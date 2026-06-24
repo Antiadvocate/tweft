@@ -355,6 +355,7 @@ export interface SaveState {
   interview_report?: import("./interview-types").InterviewReport;   // the graded result
   interview_timings?: import("./interview-types").ResponseTiming[]; // per-response timing, captured client-side
   interview_clock_started_ms?: number | null;                       // epoch ms when the locked clock began
+  interview_clock_paused_ms?: number;                               // accumulated ms the clock was paused (engine processing)
 }
 
 // ───────────────────────────── simulator contract ─────────────────────────────

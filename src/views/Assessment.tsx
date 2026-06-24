@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, Clock, Flag } from "lucide-react";
+import { Send, Clock, Flag, Loader2 } from "lucide-react";
 import { api, streamTurn, type ClientSave, type InterviewReport } from "../lib/api";
-import { computeTiming, clockExpired, secondsRemaining } from "../engine/interview-timing";
+import { computeTiming } from "../engine/interview-timing";
 
 /** Split narrator prose into paragraphs (matches the engine's double-newline convention). */
 function Prose({ text }: { text: string }) {
@@ -26,15 +26,23 @@ export default function Assessment({ save, setSave, onGraded }: {
   const [liveProse, setLiveProse] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(
-    save.interview_clock_started_ms != null ? secondsRemaining(save.interview_clock_started_ms, cfg.time_budget) : null
-  );
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(() => {
+    const started = save.interview_clock_started_ms;
+    if (started == null) return null;
+    const paused = save.interview_clock_paused_ms ?? 0;
+    const elapsed = (Date.now() - started - paused) / 1000;
+    return Math.max(0, Math.round(cfg.time_budget.total_seconds - elapsed));
+  });
   const [started, setStarted] = useState(save.interview_clock_started_ms != null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const shownAtRef = useRef<number>(Date.now());        // when the current message finished rendering
   const typingStartRef = useRef<number | null>(null);   // first keystroke after a message
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // clock-pause accounting: the countdown must NOT run while the engine is processing
+  // (the candidate physically can't act), so we accumulate paused time and subtract it.
+  const pausedTotalRef = useRef<number>(save.interview_clock_paused_ms ?? 0);
+  const pauseStartRef = useRef<number | null>(null);
 
   const history = save.history;
   const startedMs = save.interview_clock_started_ms ?? null;
@@ -48,21 +56,29 @@ export default function Assessment({ save, setSave, onGraded }: {
     if (el) el.scrollTop = el.scrollHeight;
   }, [liveProse, history.length, phase]);
 
-  // the locked clock — tick every second once started; lock + auto-grade at zero
+  // paused-aware remaining time: subtract any time spent while the engine was processing.
+  const remaining = (nowMs = Date.now()): number => {
+    if (startedMs == null) return cfg.time_budget.total_seconds;
+    const livePause = pauseStartRef.current != null ? nowMs - pauseStartRef.current : 0;
+    const elapsed = (nowMs - startedMs - pausedTotalRef.current - livePause) / 1000;
+    return Math.max(0, Math.round(cfg.time_budget.total_seconds - elapsed));
+  };
+
+  // the locked clock — tick every second once started; pauses while running; lock + auto-grade at zero
   useEffect(() => {
     if (!started || startedMs == null) return;
     const tick = () => {
-      const left = secondsRemaining(startedMs, cfg.time_budget);
+      const left = remaining();
       setSecondsLeft(left);
-      if (left <= 0) endAndGrade();
+      if (left <= 0 && !running) endAndGrade();
     };
     tick();
     const h = setInterval(tick, 1000);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, startedMs]);
+  }, [started, startedMs, running]);
 
-  const expired = startedMs != null && clockExpired(startedMs, cfg.time_budget);
+  const expired = started && secondsLeft != null && secondsLeft <= 0;
   const lastShownText = useMemo(() => {
     const lastTurn = history.filter((h) => h.kind !== "opening").slice(-1)[0];
     return lastTurn?.narrator_prose ?? cfg.opening_message;
@@ -91,11 +107,11 @@ export default function Assessment({ save, setSave, onGraded }: {
     if (clockMs == null) {
       clockMs = await api.startClock(save.id);
       setStarted(true);
-      setSecondsLeft(secondsRemaining(clockMs, cfg.time_budget));
+      setSecondsLeft(cfg.time_budget.total_seconds);
     }
 
-    // hard boundary: if the clock already expired, do not run another turn — grade now
-    if (clockExpired(clockMs, cfg.time_budget)) { await endAndGrade(); return; }
+    // hard boundary: if the clock already expired (paused-aware), grade now
+    if (remaining() <= 0) { await endAndGrade(); return; }
 
     // measure timing for this response
     const now = Date.now();
@@ -108,6 +124,8 @@ export default function Assessment({ save, setSave, onGraded }: {
     });
     await api.recordTiming(save.id, timing);
 
+    // PAUSE the countdown — the candidate can't act while the engine computes.
+    pauseStartRef.current = Date.now();
     setAction(""); setError(null); setRunning(true); setLiveProse(""); setPhase("reading the room");
     let failed = false;
     try {
@@ -120,10 +138,16 @@ export default function Assessment({ save, setSave, onGraded }: {
     } catch (e: any) {
       if (e.name !== "AbortError") { setError(e.message ?? "turn failed"); failed = true; }
     } finally {
+      // RESUME the countdown: bank the paused interval, persist it, unlock input.
+      if (pauseStartRef.current != null) {
+        pausedTotalRef.current += Date.now() - pauseStartRef.current;
+        pauseStartRef.current = null;
+        api.recordPause(save.id, pausedTotalRef.current).catch(() => {});
+      }
       setRunning(false); setPhase(null);
       if (failed) setAction(a);
-      // re-check the clock after the turn resolves
-      if (clockMs != null && clockExpired(clockMs, cfg.time_budget)) endAndGrade();
+      // re-check the clock after the turn resolves (paused-aware)
+      if (remaining() <= 0) endAndGrade();
     }
   }
 
@@ -134,10 +158,10 @@ export default function Assessment({ save, setSave, onGraded }: {
     <div className="h-full flex flex-col">
       {/* clock + end bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-2 text-[13px]" style={{ color: lowTime ? "#c07a6a" : "var(--text-mid)" }}>
+        <div className="flex items-center gap-2 text-[13px]" style={{ color: running ? "var(--text-lo)" : lowTime ? "#c07a6a" : "var(--text-mid)" }}>
           <Clock size={14} />
           {started && secondsLeft != null
-            ? <span className="font-mono">{mmss(secondsLeft)}</span>
+            ? <span className="font-mono">{mmss(secondsLeft)}{running ? " · paused" : ""}</span>
             : <span className="italic">clock starts when you reply</span>}
         </div>
         <button onClick={endAndGrade} disabled={grading || !started}
@@ -181,10 +205,19 @@ export default function Assessment({ save, setSave, onGraded }: {
           )}
 
           <AnimatePresence>
-            {phase && !liveProse && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="text-[12px] italic py-2" style={{ color: "var(--text-lo)" }}>
-                {phase}…
+            {running && (
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="flex items-center gap-2.5 py-3">
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--accent)" }}
+                      animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
+                      transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18 }} />
+                  ))}
+                </div>
+                <span className="text-[12.5px] italic" style={{ color: "var(--text-mid)" }}>
+                  {liveProse ? "the room is responding…" : `${phase ?? "the room is reacting"}… (the clock is paused — you can't reply yet)`}
+                </span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -210,13 +243,13 @@ export default function Assessment({ save, setSave, onGraded }: {
             onChange={(e) => { onFirstKeystroke(); setAction(e.target.value); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
             rows={1}
-            placeholder={locked ? "assessment ended" : "Respond as the manager…"}
-            className="flex-1 resize-none rounded-xl px-3.5 py-2.5 text-[14px] max-h-40"
-            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", color: "var(--text-hi)" }}
+            placeholder={locked ? "assessment ended" : running ? "the room is reacting — wait for the reply…" : "Respond as the manager…"}
+            className="flex-1 resize-none rounded-xl px-3.5 py-2.5 text-[14px] max-h-40 transition-opacity"
+            style={{ background: "var(--surface-1)", border: "1px solid var(--border)", color: "var(--text-hi)", opacity: running ? 0.55 : 1, cursor: running ? "not-allowed" : "text" }}
           />
           <motion.button whileTap={{ scale: 0.92 }} onClick={submit} disabled={locked || running || !action.trim()}
-            className="shrink-0 rounded-xl p-2.5" style={{ background: "var(--accent)", color: "var(--bg)", opacity: (locked || !action.trim()) ? 0.4 : 1 }}>
-            <Send size={18} />
+            className="shrink-0 rounded-xl p-2.5" style={{ background: "var(--accent)", color: "var(--bg)", opacity: (locked || running || !action.trim()) ? 0.4 : 1 }}>
+            {running ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </motion.button>
         </div>
       </div>

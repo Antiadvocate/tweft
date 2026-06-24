@@ -79,6 +79,7 @@ export interface InterviewBuildInput {
   scope_password?: string;             // if set, enables password-gated reviewer scopes
   organization_name?: string;
   designer_notes?: string;
+  company_canon?: string[];            // internal facts the sim treats as ground truth (e.g. "the on-call contractor has a ~12-min response delay")
 }
 
 /** Build a locked interview SaveState. The candidate plays it through the normal
@@ -161,6 +162,15 @@ export async function assembleInterview(input: InterviewBuildInput): Promise<Sav
 
   syncPresence(s);
 
+  // company-canon: internal facts the simulation treats as ground truth. These ride in
+  // world.canon (always in context, never pruned), so the narrator honors them — but they
+  // are NOT part of the grading rubric; a candidate isn't penalized for not knowing an
+  // obscure internal fact unless the scenario surfaces it.
+  for (const fact of input.company_canon ?? []) {
+    const f = fact.trim();
+    if (f && !s.world.canon.some((c) => c.toLowerCase() === f.toLowerCase())) s.world.canon.push(f);
+  }
+
   // the opening message the candidate sees — stored as the fixed opening scene (turn 0, kind:"opening").
   if (input.opening_message?.trim()) {
     s.history = [{
@@ -209,3 +219,105 @@ export function defaultTimeBudget(totalMinutes = 15): TimeBudget {
     reading_wpm: 250,   // average silent reading
   };
 }
+
+// ───────────────────────────── example scenario (rapid testing) ─────────────────────────────
+
+const EXAMPLE_SYSTEM = `You invent a COMPLETE, realistic management work-sample scenario for testing a hiring-assessment app. Make it specific and a little unusual — not the generic "two engineers disagree" — but always grounded in ordinary workplace reality (no melodrama). Output ONLY JSON:
+{"organization_name":"a believable company/team name",
+"role":{"title":"the manager role being assessed","level":"first_line|manager_of_managers|peer_lead","summary":"2-3 sentences on the manager's scope"},
+"reports":[{"name":"","role_title":"","job_summary":"1-2 sentences","experience":"plausible","is_lead":false,"is_high_performer":false,"personality_traits":["3-4 traits"],"disposition_to_manager":"how they treat a new manager, with a reason — may include authored friction","hidden_driver":"what they really want or fear, surfaced only by good diagnosis","starting_warmth":0,"starting_trust":0,"speech_pattern":""}],
+"opening_situation":"1-2 sentences framing what the candidate walks into",
+"opening_message":"the literal first message/scene the candidate sees, ending on a beat that invites action",
+"end_state_note":"what 'the scenario is over' means",
+"objectives":[{"label":"","success_signal":"tied to an observable outcome","target_report_name":"","weight":3}],
+"company_canon":["1-3 internal facts the AI couldn't guess that the team treats as normal — e.g. an approval process, a tooling quirk, a standing constraint"]}
+Use 3-4 reports with genuinely competing wants. Vary names and demographics naturally and incidentally — never make identity the subject of the test. starting_warmth/trust in [-100,100], mostly mild (-30..30).`;
+
+export interface ExampleInput { jd?: string; minutes?: number; model?: string; }
+
+/** The builder's form shape — what an example scenario fills in for tweaking. */
+export interface ScenarioDraft {
+  organization_name: string;
+  role: RoleSpec;
+  reports: ReportSpec[];
+  opening_situation: string;
+  opening_message: string;
+  end_state_note: string;
+  objectives: ScenarioObjective[];   // target_report holds a report SPEC id (r_N), matching reports[].id
+  company_canon: string[];
+  minutes: number;
+}
+
+/** Generate a complete example scenario as editable DRAFT fields (does NOT assemble/save).
+ *  The builder calls this to prefill its form so the designer can tweak before launching. */
+export async function draftExampleScenario(input: ExampleInput = {}): Promise<ScenarioDraft> {
+  const model = input.model ?? "deepseek/deepseek-chat-v3-0324";
+  const seed = input.jd?.trim()
+    ? `Seed the manager role from this job description, then invent a fitting team and situation:\n${input.jd.trim()}`
+    : `Invent a fresh, specific scenario from scratch. Pick an industry at random (not always tech).`;
+  const msgs = buildMessages(EXAMPLE_SYSTEM, "Generate one complete scenario.", seed, model);
+
+  let g: any = null, lastErr = "";
+  for (const m of [model, model, "google/gemini-2.0-flash-001"]) {
+    try {
+      const out = await complete(msgs, m, m, true, 4000);
+      g = safeJson<any>(out.text, null);
+      if (g?.role?.title && Array.isArray(g.reports) && g.reports.length >= 2 && g.opening_message) break;
+      lastErr = `model ${m} returned an incomplete scenario`; g = null;
+    } catch (e: any) { lastErr = `${m}: ${e.message}`; g = null; }
+  }
+  if (!g) throw new Error(`Example generation failed — ${lastErr}.`);
+
+  const level: ManagerLevel = ["first_line", "manager_of_managers", "peer_lead"].includes(g.role?.level) ? g.role.level : "first_line";
+  const reports: ReportSpec[] = (g.reports ?? []).map((r: any, i: number) => ({
+    id: `r_${i + 1}`,
+    name: r.name || `Report ${i + 1}`,
+    role_title: r.role_title || "Team Member",
+    job_summary: r.job_summary || "",
+    experience: r.experience || "",
+    is_lead: !!r.is_lead,
+    is_high_performer: !!r.is_high_performer,
+    personality_traits: Array.isArray(r.personality_traits) ? r.personality_traits.slice(0, 5) : [],
+    disposition_to_manager: r.disposition_to_manager || "",
+    hidden_driver: r.hidden_driver || "",
+    starting_warmth: clampN(r.starting_warmth, -100, 100),
+    starting_trust: clampN(r.starting_trust, -100, 100),
+    speech_pattern: r.speech_pattern || "professional",
+  }));
+  const nameToSpecId: Record<string, string> = {};
+  for (const r of reports) nameToSpecId[r.name.toLowerCase()] = r.id;
+
+  return {
+    organization_name: g.organization_name || "Example Co.",
+    role: { title: g.role.title, level, summary: g.role.summary || "" },
+    reports,
+    opening_situation: g.opening_situation || "",
+    opening_message: g.opening_message || "",
+    end_state_note: g.end_state_note || "The scenario is complete.",
+    objectives: (g.objectives ?? []).map((o: any, i: number) => ({
+      id: `obj_${i + 1}`,
+      label: o.label || `Objective ${i + 1}`,
+      success_signal: o.success_signal || "",
+      target_report: o.target_report_name ? nameToSpecId[String(o.target_report_name).toLowerCase()] : undefined,
+      weight: clampN(o.weight, 1, 5) || 3,
+    })),
+    company_canon: Array.isArray(g.company_canon) ? g.company_canon.slice(0, 4) : [],
+    minutes: input.minutes ?? 15,
+  };
+}
+
+/** Invent a full scenario and assemble it directly (kept for convenience / programmatic use). */
+export async function exampleInterview(input: ExampleInput = {}): Promise<SaveState> {
+  const d = await draftExampleScenario(input);
+  const build: InterviewBuildInput = {
+    role: d.role, reports: d.reports,
+    opening_message: d.opening_message, opening_situation: d.opening_situation,
+    end_state_note: d.end_state_note, objectives: d.objectives,
+    time_budget: defaultTimeBudget(d.minutes),
+    organization_name: d.organization_name, company_canon: d.company_canon,
+    designer_notes: "Generated example scenario (for testing).",
+  };
+  return assembleInterview(build);
+}
+
+function clampN(v: any, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, Math.round(Number(v) || 0))); }

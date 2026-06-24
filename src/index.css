@@ -281,3 +281,22 @@ details.shifts > summary::-webkit-details-marker { display: none; }
   text-align: left;
   margin: 0 0 1em;
 }
+
+/* ─── print / Save-as-PDF for the assessment report ─── */
+@media print {
+  /* hide everything except the report area */
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area {
+    position: absolute; left: 0; top: 0; width: 100%;
+    max-width: none; height: auto; overflow: visible;
+    padding: 24px 32px;
+    color: #111 !important;
+  }
+  /* force readable colors on white paper */
+  .print-area * { color: #1a1a1a !important; }
+  .no-print { display: none !important; }
+  /* keep cards from breaking awkwardly across pages */
+  .print-area .rounded-lg { break-inside: avoid; }
+  @page { margin: 14mm; }
+}

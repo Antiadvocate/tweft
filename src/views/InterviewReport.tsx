@@ -69,7 +69,7 @@ function ScopesPanel({ save }: { save: ClientSave }) {
   }
 
   return (
-    <div className="mt-7 rounded-lg p-4" style={{ background: "var(--surface-1, rgba(255,255,255,0.03))", border: "1px dashed var(--border, rgba(255,255,255,0.12))" }}>
+    <div className="mt-7 rounded-lg p-4 no-print" style={{ background: "var(--surface-1, rgba(255,255,255,0.03))", border: "1px dashed var(--border, rgba(255,255,255,0.12))" }}>
       <div className="text-[11px] uppercase tracking-wide mb-2" style={{ color: "var(--text-mid)" }}>Reviewer scopes (password-gated)</div>
       {!open ? (
         <div className="flex items-center gap-2">
@@ -114,7 +114,7 @@ function ScopesPanel({ save }: { save: ClientSave }) {
 export default function InterviewReportView({ report, save, onClose }: { report: InterviewReport; save: ClientSave; onClose?: () => void }) {
   const r = report;
   return (
-    <div className="h-full overflow-y-auto px-5 sm:px-8 py-6 max-w-3xl mx-auto">
+    <div className="h-full overflow-y-auto px-5 sm:px-8 py-6 max-w-3xl mx-auto print-area">
       <div className="text-[11px] uppercase tracking-wide mb-1.5" style={{ color: "var(--text-mid)" }}>
         Assessment · {r.role_title} · {r.level.replace(/_/g, " ")}
       </div>
@@ -210,9 +210,14 @@ export default function InterviewReportView({ report, save, onClose }: { report:
         {r.decision_support_notice}
       </div>
 
-      {onClose && (
-        <button onClick={onClose} className="mt-6 mb-12 px-4 py-2 rounded-lg text-[13px]" style={{ background: "var(--surface-1, rgba(255,255,255,0.04))", border: "1px solid var(--border, rgba(255,255,255,0.08))" }}>Back</button>
-      )}
+      <div className="flex items-center gap-3 mt-6 mb-12 no-print">
+        <button onClick={() => window.print()} className="px-4 py-2 rounded-lg text-[13px] font-display" style={{ background: "var(--accent)", color: "var(--bg)" }}>
+          Save as PDF
+        </button>
+        {onClose && (
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px]" style={{ background: "var(--surface-1, rgba(255,255,255,0.04))", border: "1px solid var(--border, rgba(255,255,255,0.08))" }}>Back</button>
+        )}
+      </div>
     </div>
   );
 }

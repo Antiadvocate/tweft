@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { api } from "../lib/api";
+import { api, type ScenarioDraft } from "../lib/api";
 import type {
   RoleSpec, ReportSpec, ScenarioObjective, ManagerLevel, Competency,
 } from "../engine/interview-types";
@@ -41,9 +41,23 @@ export default function InterviewBuilder({ onCreated }: { onCreated: (id: string
   const [minutes, setMinutes] = useState(15);
   const [wpm, setWpm] = useState(40);
   const [scopePw, setScopePw] = useState("");
+  const [companyCanon, setCompanyCanon] = useState("");
+  const [exampleBusy, setExampleBusy] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  /** Populate every field from a generated example draft, for tweaking before launch. */
+  function applyDraft(d: ScenarioDraft) {
+    setRole(d.role);
+    setReports(d.reports.length ? d.reports : [blankReport()]);
+    setOpeningSituation(d.opening_situation);
+    setOpeningMessage(d.opening_message);
+    setEndState(d.end_state_note);
+    setObjectives(d.objectives.length ? d.objectives : [{ id: uid(), label: "", success_signal: "", weight: 3 }]);
+    setCompanyCanon((d.company_canon ?? []).join("\n"));
+    setMinutes(d.minutes ?? 15);
+  }
 
   const setReport = (id: string, patch: Partial<ReportSpec>) =>
     setReports((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -80,6 +94,7 @@ export default function InterviewBuilder({ onCreated }: { onCreated: (id: string
         objectives: objectives.filter((o) => o.label.trim()),
         minutes, assumed_wpm: wpm,
         scope_password: scopePw.trim() || undefined,
+        company_canon: companyCanon.split("\n").map((l) => l.trim()).filter(Boolean),
       });
       onCreated(created.id);
     } catch (e: any) { setErr(e.message); }
@@ -89,8 +104,25 @@ export default function InterviewBuilder({ onCreated }: { onCreated: (id: string
   return (
     <div className="h-full overflow-y-auto px-5 sm:px-8 py-6 max-w-2xl mx-auto">
       <div className="font-display text-lg mb-1">New interview assessment</div>
-      <div className="text-[13px] mb-6" style={{ color: "var(--text-mid)" }}>
+      <div className="text-[13px] mb-4" style={{ color: "var(--text-mid)" }}>
         Everything here is fixed once the scenario starts, so every candidate faces the identical setup. The clock starts the moment the candidate begins their first response and ends at the boundary — it can't be bypassed.
+      </div>
+
+      {/* quick test: generate a complete example scenario into the form to tweak */}
+      <div className="mb-6 rounded-lg p-3.5 flex items-center justify-between gap-3" style={{ background: "var(--surface-2)", border: "1px dashed var(--border)" }}>
+        <div className="text-[12.5px]" style={{ color: "var(--text-mid)" }}>
+          Need a starting point? Generate a complete example — cast, situation, objectives — into the form below, then tweak anything before you launch.
+        </div>
+        <button onClick={async () => {
+          setErr(""); setExampleBusy(true);
+          try { const d = await api.draftExample(roleJD.trim() || undefined, minutes); applyDraft(d); }
+          catch (e: any) { setErr(e.message); }
+          finally { setExampleBusy(false); }
+        }} disabled={exampleBusy}
+          className="shrink-0 px-3.5 py-2 rounded-lg text-[13px] font-display whitespace-nowrap"
+          style={{ background: "var(--accent)", color: "var(--bg)" }}>
+          {exampleBusy ? "Generating…" : "Fill with example"}
+        </button>
       </div>
 
       {/* ROLE */}
@@ -155,6 +187,11 @@ export default function InterviewBuilder({ onCreated }: { onCreated: (id: string
         <textarea value={openingMessage} onChange={(e) => setOpeningMessage(e.target.value)} rows={3} className="w-full rounded-lg p-2.5 text-[13px] mb-3" style={field} placeholder="The exact scene/message that opens the assessment — the clock starts when they reply to this." />
         <label className={lbl} style={lblStyle}>End-state (fixed; the candidate can't bypass it)</label>
         <textarea value={endState} onChange={(e) => setEndState(e.target.value)} rows={2} className="w-full rounded-lg p-2.5 text-[13px]" style={field} placeholder="What 'the scenario is over' means — e.g. 'The standup ends and the ship/no-ship call must be made.'" />
+        <label className={lbl + " mt-3"} style={lblStyle}>Internal company facts (one per line, optional)</label>
+        <textarea value={companyCanon} onChange={(e) => setCompanyCanon(e.target.value)} rows={3} className="w-full rounded-lg p-2.5 text-[13px]" style={field} placeholder={"Things the AI couldn't know but the team treats as normal. One per line, e.g.:\nThe on-call contractor only answers a specific line and there's a ~12-minute response delay.\nProduction deploys require two approvals and the release window is Tuesdays only."} />
+        <div className="text-[11px] mt-1.5" style={{ color: "var(--text-lo)" }}>
+          These become world facts every character honors. They shape the situation but aren't part of the grading rubric — a candidate isn't marked down for not knowing one unless the scenario surfaces it.
+        </div>
       </Section>
 
       {/* OBJECTIVES */}
