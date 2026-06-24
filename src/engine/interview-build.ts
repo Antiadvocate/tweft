@@ -21,6 +21,14 @@ import { newSave, registerCharacter, uid } from "./state";
 import { syncPresence } from "./turn";
 import { makeScopePassword } from "./interview-timing";
 import { buildMessages, complete, safeJson } from "../llm";
+import { getModel } from "../config";
+
+/** The chosen model, or a hard error — nothing here silently runs a model the user didn't pick. */
+function chosenModel(explicit?: string): string {
+  const m = explicit || getModel();
+  if (!m) throw new Error("No model selected. Open Settings and choose an OpenRouter model first.");
+  return m;
+}
 
 // ───────────────────────────── JD extractors ─────────────────────────────
 
@@ -33,9 +41,10 @@ const VALID_COMPS: Competency[] = [
   "influence", "developing_people", "emotional_regulation", "fairness_integrity",
 ];
 
-export async function extractRole(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<RoleSpec> {
-  const msgs = buildMessages(ROLE_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
-  const out = await complete(msgs, model, "deepseek/deepseek-v4-pro", true, 1500);
+export async function extractRole(jd: string, model?: string): Promise<RoleSpec> {
+  const m = chosenModel(model);
+  const msgs = buildMessages(ROLE_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, m);
+  const out = await complete(msgs, m, m, true, 1500);
   const g = safeJson<any>(out.text, {});
   const level: ManagerLevel = ["first_line", "manager_of_managers", "peer_lead"].includes(g.level) ? g.level : "first_line";
   const key = Array.isArray(g.key_competencies) ? g.key_competencies.filter((c: string) => VALID_COMPS.includes(c as Competency)) : [];
@@ -51,9 +60,10 @@ const REPORT_EXTRACT_SYSTEM = `You read a job description for an INDIVIDUAL role
 {"role_title":"","job_summary":"2-3 sentences on what they do","experience":"a plausible experience level for this role","is_lead":false,"is_high_performer":false,"suggested_traits":["3-5 neutral professional traits that fit the role"],"speech_pattern":"how someone in this role tends to communicate"}
 Do NOT invent hostility, grievances, or personality conflict — those are authored separately by the designer. Keep this a neutral, professional baseline. is_lead is true only if the role manages other people.`;
 
-export async function extractReport(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<Partial<ReportSpec>> {
-  const msgs = buildMessages(REPORT_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
-  const out = await complete(msgs, model, "deepseek/deepseek-v4-pro", true, 1500);
+export async function extractReport(jd: string, model?: string): Promise<Partial<ReportSpec>> {
+  const m = chosenModel(model);
+  const msgs = buildMessages(REPORT_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, m);
+  const out = await complete(msgs, m, m, true, 1500);
   const g = safeJson<any>(out.text, {});
   return {
     role_title: g.role_title || "Team Member",
@@ -101,14 +111,33 @@ export async function assembleInterview(input: InterviewBuildInput): Promise<Sav
     narrator_direction:
       "This is a hiring work-sample assessment. The PLAYER is the candidate, acting as the manager. Everyone else is a report or peer with a fixed, authored disposition. " +
       "WRITE LIKE A WORKPLACE TRANSCRIPT, NOT A NOVEL. Keep prose plain, clear, and easy to read for anyone. When a report speaks, attribute it simply on its own line — e.g. Maya: \"I don't think we should ship Friday.\" Use short paragraphs. Describe actions and reactions plainly (\"Devin crosses his arms and looks at the floor\") without literary flourish, metaphor, or scene-setting prose. No omniscient narration, no interior monologue for the characters, no chapter-book style. Think meeting notes that capture who said what and how people reacted. " +
-      "Write character movements, actions, that would be noticed by the player in a real life situation 'Sally made a face that looked annoyed' or 'Mike walked away in a hurry'. WIthout literary flourish or internal dialogue of intent of the action, describe it within the narrative" +
-      "Not every character needs to be related to the objective, some are simply there to sideline the player with coffee talk. Allow normal interactions as well. Let the reports behave consistently with their authored personality and hidden driver — including authored skepticism or friction where specified — but never melodrama, never plot twists. The candidate must do the reading of the room themselves: do not have characters announce their inner state. Each turn, the situation should move in response to what the candidate actually does.",
+      "WHEN SEVERAL PEOPLE ARE PRESENT, LET THEM EACH ACTUALLY SPEAK before the candidate has to respond — don't clip everyone to a single line; give the exchange its full natural length so the candidate faces the real volume of a room, especially for technical or multi-stakeholder problems. " +
+      "INTERNAL FACTS ARE ABSOLUTE TRUTH. Any facts under the world canon (internal company facts — processes, numbers, names, identifiers like feeder numbers or vault numbers, response delays, who-talks-to-whom) are GROUND TRUTH and override anything you might otherwise assume. NEVER invent domain-specific specifics — numbers, codes, procedures, system names, contacts — that aren't given to you. If a specific fact would be needed and you don't have it in canon, have a character be vague or say they need to look it up, rather than fabricating a plausible-sounding detail. Fabricated internal specifics are the worst failure mode here. " +
+      "NOT EVERYONE IS THERE TO HELP WITH THE TASK. A real workplace is full of interruption and parallel work. Some people present are working on their OWN separate tasks and have no reason to engage the candidate unless the candidate engages them — they keep their heads down and work; render them doing so, and do NOT have them volunteer help or commentary on the main problem. The candidate CAN choose to pull them off their work to help or to vent at them — and if the candidate does, that has a cost (the interrupted person loses focus, their own work slips, they may be annoyed). Additionally, people unrelated to the task may wander in with their own agendas — small talk, an unrelated request, office chatter, a question about something else entirely — and pull at the candidate's attention and time. This is realistic friction: managing focus and not getting derailed is part of what's being observed. Use these interruptions naturally (not constantly), especially when the candidate has time pressure. " +
+      "Let the reports behave consistently with their authored personality and hidden driver — including authored skepticism or friction where specified — but never melodrama, never plot twists. The candidate must do the reading of the room themselves: do not have characters announce their inner state. Each turn, the situation should move in response to what the candidate actually does.",
     god_mode: false,
     difficulty_profile: { lethality: "low", friction_density: "balanced", antagonist_aggression: "slow_burn", protagonist_competence: "average" },
     forbidden_as_primary: ["violence", "romance", "the supernatural", "plot twists"],
   };
 
   const s = newSave(bible.name, bible);
+
+  // every model slot uses the ONE chosen model — narrator, simulator, forge, and even the
+  // fallback are the same, so nothing in the run ever silently switches to a model the user
+  // didn't pick. (image model left as-is; image gen is unused in the assessment.)
+  const model = chosenModel();
+  s.model_settings.narrator_model = model;
+  s.model_settings.simulator_model = model;
+  s.model_settings.forge_model = model;
+  s.model_settings.fallback_model = model;
+  s.model_settings.tension = 3; // 3 leaves real breathing room under pressure; 5 leaves none
+  // Assessments are short and bounded, and a character re-asking for something already handled
+  // destroys credibility — so keep memory generous: more verbatim recent turns and more recalled
+  // memories per character than the game default, and reflect less aggressively (no compaction
+  // that could drop a still-relevant detail mid-assessment).
+  s.model_settings.history_window = 8;
+  s.model_settings.context_memories_k = 12;
+  s.model_settings.reflection_cadence = 20;
 
   // the candidate is the player — deliberately a blank professional vessel.
   // We do NOT author the candidate's identity; they bring their own choices, not a fixed persona.
@@ -234,7 +263,7 @@ const EXAMPLE_SYSTEM = `You invent a COMPLETE, realistic management work-sample 
 "end_state_note":"what 'the scenario is over' means",
 "objectives":[{"label":"","success_signal":"tied to an observable outcome","target_report_name":"","weight":3}],
 "company_canon":["1-3 internal facts the AI couldn't guess that the team treats as normal — e.g. an approval process, a tooling quirk, a standing constraint"]}
-Use 3-4 reports with genuinely competing wants. Vary names and demographics naturally and incidentally — never make identity the subject of the test. starting_warmth/trust in [-100,100], mostly mild (-30..30).`;
+Include 3-4 reports with genuinely competing wants. Make at least ONE of them only tangentially involved — someone working on their own separate task who has no stake in the main problem (the candidate would have to choose to involve or ignore them). Vary names and demographics naturally and incidentally — never make identity the subject of the test. starting_warmth/trust in [-100,100], mostly mild (-30..30).`;
 
 export interface ExampleInput { jd?: string; minutes?: number; model?: string; }
 
@@ -254,14 +283,14 @@ export interface ScenarioDraft {
 /** Generate a complete example scenario as editable DRAFT fields (does NOT assemble/save).
  *  The builder calls this to prefill its form so the designer can tweak before launching. */
 export async function draftExampleScenario(input: ExampleInput = {}): Promise<ScenarioDraft> {
-  const model = input.model ?? "deepseek/deepseek-v4-pro";
+  const model = chosenModel(input.model);
   const seed = input.jd?.trim()
     ? `Seed the manager role from this job description, then invent a fitting team and situation:\n${input.jd.trim()}`
     : `Invent a fresh, specific scenario from scratch. Pick an industry at random (not always tech).`;
   const msgs = buildMessages(EXAMPLE_SYSTEM, "Generate one complete scenario.", seed, model);
 
   let g: any = null, lastErr = "";
-  for (const m of [model, model, "deepseek/deepseek-v4-pro"]) {
+  for (const m of [model, model]) {
     try {
       const out = await complete(msgs, m, m, true, 4000);
       g = safeJson<any>(out.text, null);

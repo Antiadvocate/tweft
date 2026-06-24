@@ -134,7 +134,7 @@ export default function Assessment({ save, setSave, onGraded }: {
         onDelta: (t) => setLiveProse((p) => p + t),
         onDone: (s) => { setSave(s); setLiveProse(""); setPhase(null); armTiming(); },
         onError: (msg) => { setError(msg); failed = true; },
-      });
+      }, { ground: true });
     } catch (e: any) {
       if (e.name !== "AbortError") { setError(e.message ?? "turn failed"); failed = true; }
     } finally {

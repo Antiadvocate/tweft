@@ -164,13 +164,21 @@ export async function runTurn(state: SaveState, action: string, ev: TurnEvents, 
   }
 
   const fullDirective = directive + forbid + stallDirective + "\n" + undertow.directive;
+  // Dynamic narrator budget: a single-character beat needs little room, but a scene where
+  // several people are talking needs breadth for each to actually speak before the player
+  // responds — otherwise everyone gets one clipped line. Scale by present cast + a complexity
+  // nudge from the world's narrative direction (engineering/technical scenarios run longer).
+  const presentCount = Object.values(state.characters).filter((c: any) => c.id !== "char_player" && c.location === state.characters["char_player"]?.location).length;
+  const complexityHint = (state.world_bible.political_situation?.length ?? 0) + (state.world_bible.narrator_direction?.length ?? 0);
+  const complexityBonus = complexityHint > 1200 ? 1200 : complexityHint > 600 ? 600 : 0;
+  const narratorBudget = Math.min(8000, 2600 + presentCount * 700 + complexityBonus);
   const groundNote = opts?.ground ? `\n\n=== GROUNDING (this turn) ===\nThis story is set in a real place / based on real subject matter. Use web search to get the real-world facts right — actual locations, layouts, names, how things really work, accurate period or setting detail — and weave that accuracy naturally into the prose. Do not cite sources or break the fiction; just be correct.` : "";
   const narratorMsgs = buildMessages(
     narratorSystem(state.model_settings.lean_mode), prefix,
     `${digest}\n\n=== DIRECTION ===\n${fullDirective}${groundNote}\n\n=== PLAYER ACTION (render exactly, add no interiority) ===\n${framedAction}`,
     state.model_settings.narrator_model,
   );
-  const stream = completeStream(narratorMsgs, state.model_settings.narrator_model, state.model_settings.fallback_model, 4000, opts?.ground === true);
+  const stream = completeStream(narratorMsgs, state.model_settings.narrator_model, state.model_settings.fallback_model, narratorBudget, opts?.ground === true);
   let prose = "";
   let narratorUsage: import("../llm").Usage = { prompt_tokens: 0, completion_tokens: 0 };
   while (true) {

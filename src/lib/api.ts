@@ -21,6 +21,7 @@ import {
 } from "../engine/interview-build";
 import { gradeInterview as engGradeInterview } from "../engine/interview-assess";
 import { verifyScopePassword } from "../engine/interview-timing";
+import { getModel } from "../config";
 import type {
   RoleSpec, ReportSpec, ScenarioObjective, InterviewReport, ResponseTiming,
 } from "../engine/interview-types";
@@ -418,10 +419,12 @@ export const api = {
     return { url: entry.illustration_url, save: clientView(s) };
   },
 
-  forge: async (seed: string, model = "deepseek/deepseek-chat-v3-0324"): Promise<ClientSave> => {
-    const msgs = buildMessages(FORGE_SYSTEM, "SEED IDEA:", seed, model);
+  forge: async (seed: string, model?: string): Promise<ClientSave> => {
+    const chosen = model || getModel();
+    if (!chosen) throw new Error("No model selected. Open Settings and choose an OpenRouter model first.");
+    const msgs = buildMessages(FORGE_SYSTEM, "SEED IDEA:", seed, chosen);
     let g: any = null, lastErr = "";
-    for (const m of [model, model, "google/gemini-2.0-flash-001"]) {
+    for (const m of [chosen, chosen]) {
       try {
         const out = await complete(msgs, m, m, true, 8000);
         g = safeJson<any>(out.text, null);

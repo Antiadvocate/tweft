@@ -22,6 +22,31 @@ function headers() {
   };
 }
 
+export interface ORModel { id: string; name: string; context?: number; promptPrice?: number }
+
+/** Fetch the live catalog of available models from OpenRouter (same source as the website).
+ *  Sorted by name; safe to call without a key (returns [] on failure). */
+export async function listModels(): Promise<ORModel[]> {
+  try {
+    const k = getApiKey();
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      headers: k ? { Authorization: `Bearer ${k}` } : {},
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rows: ORModel[] = (data?.data ?? []).map((m: any) => ({
+      id: m.id,
+      name: m.name ?? m.id,
+      context: m.context_length ?? m.top_provider?.context_length,
+      promptPrice: m.pricing?.prompt != null ? Number(m.pricing.prompt) : undefined,
+    }));
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 export function buildMessages(system: string, stable: string, volatile: string, model: string): any[] {
   const anthropic = model.startsWith("anthropic/");
   if (anthropic) {

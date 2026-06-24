@@ -399,5 +399,5 @@ export const DEFAULT_MODELS: ModelSettings = {
   history_window: 3,
   lean_mode: false,
   token_budget: 0,
-  tension: 5,
+  tension: 3,
 };

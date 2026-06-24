@@ -14,7 +14,7 @@ import type { SaveState, Identity, Condition, WorldBible } from "./types";
 import { compactMemoryDigest } from "./memory";
 import { mindDigest } from "./mind";
 
-export const NARRATOR_SYSTEM = `You narrate a persistent, world-reacting workplace situation. You do not write quests.
+export const NARRATOR_SYSTEM = `You narrate a persistent, world-reacting story. Render a living place honestly, one turn at a time. You are not a quest dispenser.
 
 Note on this document: it is written in flat, plain language on purpose. Do not imitate its register in your prose. How you write the story is governed by the VOICE section below, not by the style of these instructions.
 

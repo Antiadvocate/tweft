@@ -205,11 +205,11 @@ export default function InterviewReportView({ report, save, onClose }: { report:
         Assessment · {r.role_title} · {r.level.replace(/_/g, " ")}
       </div>
 
-      <div className="rounded-2xl p-5 mb-5" style={{ background: "var(--surface-1, rgba(255,255,255,0.03))", border: "1px solid var(--border, rgba(255,255,255,0.08))" }}>
+      <div className="rounded-2xl p-5 mb-5 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${gradeBg(r.overall_grade)}, var(--surface-1, rgba(255,255,255,0.03)))`, border: `1px solid ${GRADE_COLOR[r.overall_grade]}55` }}>
         <div className="flex items-start gap-4 mb-4">
-          <GradeBadge grade={r.overall_grade} />
-          <div className="flex-1">
-            <div className="font-display text-[15px] leading-tight mb-0.5">{GRADE_MEANING[r.overall_grade]}</div>
+          <GradeBadge grade={r.overall_grade} size={84} />
+          <div className="flex-1 pt-1">
+            <div className="font-display text-[17px] leading-tight mb-1">{GRADE_MEANING[r.overall_grade]}</div>
             <div className="text-[13px]" style={{ color: "var(--text-mid)" }}>{r.summary}</div>
           </div>
         </div>
@@ -219,7 +219,7 @@ export default function InterviewReportView({ report, save, onClose }: { report:
           <div className="flex flex-wrap gap-2 mb-4">
             {r.objectives.map((o) => (
               <div key={o.id} className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px]"
-                style={{ background: o.met ? "rgba(106,166,122,0.12)" : "rgba(192,122,106,0.12)", border: `1px solid ${o.met ? "rgba(106,166,122,0.4)" : "rgba(192,122,106,0.4)"}` }}>
+                style={{ background: o.met ? "rgba(106,166,122,0.18)" : "rgba(192,122,106,0.18)", border: `1px solid ${o.met ? "rgba(106,166,122,0.5)" : "rgba(192,122,106,0.5)"}` }}>
                 <span style={{ color: o.met ? "var(--accent, #6aa67a)" : "#c07a6a" }}>{o.met ? "✓" : "✕"}</span>
                 <span>{o.label}</span>
               </div>
@@ -228,7 +228,10 @@ export default function InterviewReportView({ report, save, onClose }: { report:
         )}
 
         {/* competency profile */}
-        <CompetencyProfile spine={r.spine} />
+        <div className="rounded-xl p-3.5" style={{ background: "var(--bg, rgba(0,0,0,0.2))" }}>
+          <div className="text-[10px] uppercase tracking-wide mb-2.5" style={{ color: "var(--text-lo)" }}>Competency profile</div>
+          <CompetencyProfile spine={r.spine} />
+        </div>
       </div>
 
       {/* ═══════════ what they actually did ═══════════ */}
