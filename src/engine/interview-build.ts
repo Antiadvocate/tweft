@@ -255,7 +255,7 @@ export interface ScenarioDraft {
 /** Generate a complete example scenario as editable DRAFT fields (does NOT assemble/save).
  *  The builder calls this to prefill its form so the designer can tweak before launching. */
 export async function draftExampleScenario(input: ExampleInput = {}): Promise<ScenarioDraft> {
-  const model = input.model ?? "deepseek/deepseek-chat-v3-0324";
+  const model = input.model ?? "deepseek/deepseek-v4-pro";
   const seed = input.jd?.trim()
     ? `Seed the manager role from this job description, then invent a fitting team and situation:\n${input.jd.trim()}`
     : `Invent a fresh, specific scenario from scratch. Pick an industry at random (not always tech).`;
