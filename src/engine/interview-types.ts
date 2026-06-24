@@ -178,10 +178,21 @@ export interface ResponseTiming {
 
 // ───────────────────────────── the report ─────────────────────────────
 
+/** A performance band — a feeling, not a measured percentage. The grader assigns
+ *  these directly against described standards, NOT by mapping a hidden number. */
+export type Grade = "A" | "B" | "C" | "D";
+
+export const GRADE_MEANING: Record<Grade, string> = {
+  A: "Strong — handled this like an experienced manager would",
+  B: "Solid — did the core of the job well, with gaps",
+  C: "Developing — got some of it, missed important things",
+  D: "Struggled — the situation got away from them",
+};
+
 export interface CompetencyScore {
   competency: Competency;
   label: string;
-  score: number;                  // 0–100
+  grade: Grade;                   // a band, assigned directly
   anchor_matched: string;
   evidence: string;               // cites turn(s)
   what_worked: string;
@@ -190,7 +201,7 @@ export interface CompetencyScore {
 }
 
 export interface ObjectiveScore {
-  id: string; label: string; met: boolean; score: number; evidence: string;
+  id: string; label: string; met: boolean; evidence: string;
 }
 
 export interface StyleProfile {
@@ -209,21 +220,30 @@ export interface PressureHandling {
   breather_use: string;            // did they pause to think before high-stakes replies, or fire back
 }
 
+/** A specific, literal management action the candidate took and what it caused.
+ *  This is the anti-generality field — name the actual move, not a competency. */
+export interface DecisiveMoment {
+  turn: number;
+  action: string;                  // the literal thing they did/said: "told Devin to 'just ship it' without asking why he objected"
+  consequence: string;             // what it caused in the room: "Devin went quiet; his trust dropped and never recovered"
+  kind: "strong" | "costly";
+}
+
 export interface InterviewReport {
   generated_turn: number;
   role_title: string;
   level: ManagerLevel;
   // headline for the reviewer — descriptive, not a hire/no-hire verdict
   summary: string;
-  overall: number;                 // 0–100 composite of the spine
+  overall_grade: Grade;            // the headline band (a feeling, assigned directly)
   spine: CompetencyScore[];
   objectives: ObjectiveScore[];
   style: StyleProfile;
   pressure: PressureHandling;
   relationship_deltas: { report_id: string; name: string; warmth_delta: number; trust_delta: number; read: string }[];
   missed_signals: string[];        // hidden_drivers the candidate never surfaced
-  strongest_moments: { turn: number; note: string }[];
-  costliest_moments: { turn: number; note: string }[];
+  decisive_moments: DecisiveMoment[];  // the specific actions that defined the outcome (renders up top)
+  hiring_actionable: string[];     // 2-4 crisp, directly-decision-relevant takeaways for the hiring reviewer
   timing_summary: string;          // plain-language read of the response-pace pattern
   reviewer_note: string;           // paragraph for the human decision-maker
   // explicit guardrail text rendered with every report

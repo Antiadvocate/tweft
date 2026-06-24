@@ -64,9 +64,9 @@ export default function Assessment({ save, setSave, onGraded }: {
     return Math.max(0, Math.round(cfg.time_budget.total_seconds - elapsed));
   };
 
-  // the locked clock — tick every second once started; pauses while running; lock + auto-grade at zero
+  // the locked clock — tick every second once started; pauses while running OR grading; lock + auto-grade at zero
   useEffect(() => {
-    if (!started || startedMs == null) return;
+    if (!started || startedMs == null || grading) return;
     const tick = () => {
       const left = remaining();
       setSecondsLeft(left);
@@ -76,7 +76,7 @@ export default function Assessment({ save, setSave, onGraded }: {
     const h = setInterval(tick, 1000);
     return () => clearInterval(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, startedMs, running]);
+  }, [started, startedMs, running, grading]);
 
   const expired = started && secondsLeft != null && secondsLeft <= 0;
   const lastShownText = useMemo(() => {

@@ -15,7 +15,7 @@
  */
 import type { SaveState } from "./types";
 import type {
-  InterviewReport, InterviewConfig, ManagerLevel, Competency, ResponseTiming,
+  InterviewReport, InterviewConfig, ManagerLevel, Competency, ResponseTiming, Grade,
 } from "./interview-types";
 import { COMPETENCY_ORDER, COMPETENCY_LABEL, COMPETENCY_DEF, LEVEL_LABEL } from "./interview-types";
 import { summarizeTiming } from "./interview-timing";
@@ -56,47 +56,47 @@ function levelFlex(level: ManagerLevel): string {
 /** Behaviorally-anchored rating scales for all eight spine competencies, at ~2/~5/~8.
  *  Anchors reference observable outcomes (the deltas) so scoring is a matching task. */
 function anchors(): string {
-  return `Score each competency 0–100 by matching the transcript to the closest behavioral anchor. Anchors describe OBSERVABLE actions and the state outcomes they tend to produce.
+  return `Assign each competency a band by matching the transcript to the closest behavioral anchor below. STRONG ≈ A, MIXED ≈ B/C, WEAK ≈ D. Anchors describe OBSERVABLE actions and the state outcomes they tend to produce.
 
 PROBLEM DIAGNOSIS — read the situation before committing.
-  8: Surfaced facts and the real driver from more than one party before acting; named what was still unknown; the hidden driver of at least one report came to light.
-  5: Gathered partial context, acted on an incomplete picture; one key voice unheard.
-  2: Jumped to a solution on the first move; assumed the problem's shape; missed the hidden driver entirely.
+  STRONG: Surfaced facts and the real driver from more than one party before acting; named what was still unknown; the hidden driver of at least one report came to light.
+  MIXED: Gathered partial context, acted on an incomplete picture; one key voice unheard.
+  WEAK: Jumped to a solution on the first move; assumed the problem's shape; missed the hidden driver entirely.
 
 CONFLICT MANAGEMENT — engage disagreement with a fit-for-situation approach.
-  8: Chose an approach fit for stakes and people and executed it; the disputing parties' trust held or rose, clench did not spike.
-  5: Defaulted to one mode regardless of fit; partial resolution, residual heat.
-  2: Avoided the conflict or forced a resolution that spiked a party's clench and dropped their trust sharply.
+  STRONG: Chose an approach fit for stakes and people and executed it; the disputing parties' trust held or rose, clench did not spike.
+  MIXED: Defaulted to one mode regardless of fit; partial resolution, residual heat.
+  WEAK: Avoided the conflict or forced a resolution that spiked a party's clench and dropped their trust sharply.
 
 DECISION-MAKING — a timely, reasoned call under incomplete information.
-  8: Made a clear, defensible decision when one was due, gave a reason, and owned it; did not stall past the point of usefulness or lurch without basis.
-  5: Decided, but late, hedged, or under-justified.
-  2: Either froze and let the situation decide for them, or fired off an arbitrary call with no reasoning.
+  STRONG: Made a clear, defensible decision when one was due, gave a reason, and owned it; did not stall past the point of usefulness or lurch without basis.
+  MIXED: Decided, but late, hedged, or under-justified.
+  WEAK: Either froze and let the situation decide for them, or fired off an arbitrary call with no reasoning.
 
 COMMUNICATION — clear, direct, calibrated; expectations unambiguous.
-  8: Messages were clear and direct, matched to the listener; expectations and any deadline were stated unambiguously and understood.
-  5: Generally clear but vague on the what/why, or one message likely to be misread.
-  2: Ambiguous, evasive, or mismatched to the listener; left people unsure what was expected.
+  STRONG: Messages were clear and direct, matched to the listener; expectations and any deadline were stated unambiguously and understood.
+  MIXED: Generally clear but vague on the what/why, or one message likely to be misread.
+  WEAK: Ambiguous, evasive, or mismatched to the listener; left people unsure what was expected.
 
 INFLUENCE & PERSUASION — move people via reasoning and ownership.
-  8: Built buy-in through framing, reasoning, or shared ownership; people moved because they were persuaded, reflected in warming/trust.
-  5: Some persuasion, leaned partly on position; mixed movement.
-  2: Relied on authority or pressure with no buy-in; compliance at best, resentment at worst.
+  STRONG: Built buy-in through framing, reasoning, or shared ownership; people moved because they were persuaded, reflected in warming/trust.
+  MIXED: Some persuasion, leaned partly on position; mixed movement.
+  WEAK: Relied on authority or pressure with no buy-in; compliance at best, resentment at worst.
 
 DEVELOPING PEOPLE — coach, delegate, protect engagement.
-  8: Coached rather than dictated where apt; delegated appropriately for the level; the high performer's drive stayed productive (no drift toward exit).
-  5: Some coaching but mostly told; or held one person at the cost of another's engagement.
-  2: No development; the high performer's drive shifted toward leaving, or a report was thrown under the bus.
+  STRONG: Coached rather than dictated where apt; delegated appropriately for the level; the high performer's drive stayed productive (no drift toward exit).
+  MIXED: Some coaching but mostly told; or held one person at the cost of another's engagement.
+  WEAK: No development; the high performer's drive shifted toward leaving, or a report was thrown under the bus.
 
 COMPOSURE UNDER PRESSURE — self-management; doesn't transmit stress. (Read WITH the timing signal.)
-  8: Held composure as tension rose; paused to think before high-stakes replies rather than firing back; did not make the team the outlet for pressure.
-  5: Mostly composed, one or two reactive moments.
-  2: Visibly rattled — rushed exactly when pressure spiked, or transmitted stress onto the team.
+  STRONG: Held composure as tension rose; paused to think before high-stakes replies rather than firing back; did not make the team the outlet for pressure.
+  MIXED: Mostly composed, one or two reactive moments.
+  WEAK: Visibly rattled — rushed exactly when pressure spiked, or transmitted stress onto the team.
 
 FAIRNESS & INTEGRITY — equitable, and seen to be; procedural justice.
-  8: Heard each party before forming/announcing a position; named tradeoffs openly; no party's trust dropped from feeling unheard; acted with integrity.
-  5: Heard one side fully, the other partially; a slighted party cooled modestly.
-  2: Formed/announced a position before a party spoke, or acted with evident partiality; that party's trust dropped and didn't recover.`;
+  STRONG: Heard each party before forming/announcing a position; named tradeoffs openly; no party's trust dropped from feeling unheard; acted with integrity.
+  MIXED: Heard one side fully, the other partially; a slighted party cooled modestly.
+  WEAK: Formed/announced a position before a party spoke, or acted with evident partiality; that party's trust dropped and didn't recover.`;
 }
 
 export const INTERVIEW_ASSESSOR_SYSTEM = `You are the Assessor for a management hiring WORK-SAMPLE. A candidate has just managed a live, reactive team situation in a simulation, as the manager for a specific role. Turn the transcript and the simulation's QUANTIFIED outcome into structured, numerical, evidence-cited assessment for a human reviewer.
@@ -105,7 +105,11 @@ ASSESS MANAGERIAL DECISIONS, NOT WRITING. Score what the candidate DID as a mana
 
 GROUND EVERY SCORE IN STATE AND CITE THE TURN. The simulation already quantified how the interaction landed: each report's openness (relaxation), the warmth/trust deltas toward the candidate, whether the high performer's drive drifted toward leaving, which rumors spread. These are ground truth. For every claim, cite the turn(s) that justify it. When your read of the prose and the deltas disagree, the DELTAS win — say so in state_note. Never invent evidence.
 
-SCORE BY MATCHING ANCHORS. For each competency you are given behavioral anchors at ~2/~5/~8. Match the transcript to the closest anchor, name it, and score around it. The anchors are FLEXED BY THE ROLE'S LEVEL (below); the level is fixed and authoritative. If the candidate acted at the wrong level (e.g. a manager-of-managers who mediated directly), that is an ERROR to score and explain — not a reason to re-grade them as a different level.
+GRADE WITH LETTERS, AS A FEELING — NOT A NUMBER. For each competency and overall, assign a band A/B/C/D, judged directly, the way an experienced hiring manager forms an impression. There is no percentage and no reachable "100". The bands mean: A = handled it like an experienced manager would; B = did the core of the job well, with real gaps; C = got some of it but missed important things; D = the situation got away from them. The behavioral anchors you are given (strong / mixed / weak) tell you what each band looks like for that competency — match the transcript to the closest one. The anchors are FLEXED BY THE ROLE'S LEVEL (below); the level is fixed and authoritative. If the candidate acted at the wrong level (e.g. a manager-of-managers who mediated directly), that is an ERROR to grade down and explain — not a reason to re-grade them as a different level. Most real candidates land at B or C; reserve A for genuinely skilled handling and D for a session that came apart.
+
+NAME LITERAL ACTIONS, NOT GENERALITIES. This is the most important instruction. Every piece of evidence and every decisive moment must name the SPECIFIC thing the candidate did or said — quote it where you can — not a competency label. Write "at T3 he told Devin to 'just ship it' without asking why Devin objected, and Devin went silent," NOT "showed growth areas in conflict management." The decisive_moments array is the turning points of the session in this concrete form: the literal action and the consequence it caused in the room. A reviewer should be able to read those moments and see the exact behavior, not a grade abstraction.
+
+GIVE THE HIRING REVIEWER SOMETHING TO ACT ON. The hiring_actionable list is 2-4 crisp, decision-relevant observations tied to concrete behavior — the kind of thing a reviewer repeats in a debrief ("defaults to directing under pressure," "surfaced the hidden conflict fast," "left one report worse than he found them"). Not generic praise; specific, behavioral, useful.
 
 USE THE TIMING SIGNAL FOR COMPOSURE. You are given a pacing summary. Pausing to think before a high-stakes reply is a POSITIVE composure signal (the candidate took a breath under tension). Firing back fast exactly when pressure spiked is a negative one. Pure typing speed is irrelevant — never treat slow typing as a deficiency.
 
@@ -113,25 +117,26 @@ WEIGH HOW THEY MANAGED PERCEPTION. Each report holds a private read of the candi
 
 NAME THE STYLE NEUTRALLY, JUDGE FIT SEPARATELY. Place the candidate on two neutral axes (directive↔participative, task↔relationship) as numbers, name the primary style, and report how it SHIFTS under pressure (the simulation traces pressure explicitly). Directive is not worse than participative — it is better or worse FOR THIS role and team, and that fit judgment is its own score.
 
-BE DESCRIPTIVE, NOT A VERDICT. Do not output a hire/no-hire recommendation. Produce evidence: scores, cited moments, what worked, what to change, and a reviewer paragraph. A human decides.
+BE DESCRIPTIVE, NOT A VERDICT. Do not output a hire/no-hire recommendation. The letter grade describes performance ON THIS SCENARIO, not the person's hireability. Produce evidence: bands, literal cited moments, what worked, what to change, and a reviewer paragraph. A human decides.
 
 OUTPUT ONLY THE JSON OBJECT. No markdown fences, no commentary.`;
 
 export function interviewSchemaHint(): string {
-  return `JSON shape (all keys required; [] / "" when empty):
-{"summary":"descriptive headline for the reviewer — strengths and gaps, no hire/no-hire",
-"overall":0,
-"spine":[{"competency":"problem_diagnosis|conflict_management|decision_making|communication|influence|developing_people|emotional_regulation|fairness_integrity","label":"","score":0,"anchor_matched":"~2|~5|~8 paraphrase","evidence":"cite turn(s)","what_worked":"","what_to_change":"","state_note":"how the deltas corroborate or contradict"}],
-"objectives":[{"id":"","label":"","met":false,"score":0,"evidence":"cite turn(s)"}],
+  return `JSON shape (all keys required; [] / "" when empty). Grades are letters A/B/C/D — a band, never a number:
+{"summary":"2-3 sentences, plain language, for the reviewer — what they did well and where they fell short, no hire/no-hire",
+"overall_grade":"A|B|C|D",
+"spine":[{"competency":"problem_diagnosis|conflict_management|decision_making|communication|influence|developing_people|emotional_regulation|fairness_integrity","label":"","grade":"A|B|C|D","anchor_matched":"which anchor (strong/mixed/weak) it matched","evidence":"cite the turn and the LITERAL action","what_worked":"","what_to_change":"","state_note":"how the deltas corroborate or contradict"}],
+"objectives":[{"id":"","label":"","met":false,"evidence":"cite turn(s) — what they did or failed to do"}],
+"decisive_moments":[{"turn":0,"action":"the LITERAL thing they did or said, quoted where possible — NOT a competency name","consequence":"what it caused in the room, grounded in the state change","kind":"strong|costly"}],
+"hiring_actionable":["2-4 crisp, concrete takeaways a hiring reviewer can act on — each names a specific behavior, e.g. 'Defaults to directing under pressure; would need a strong senior team if hired for a turnaround'"],
 "style":{"directive_participative":0,"task_relationship":0,"primary_style":"","under_pressure_style":"","pressure_shift_note":"","fit_read":"fit to THIS role & team, with a reason","fit_score":0},
 "pressure":{"composure_read":"","rushed_under_tension":false,"breather_use":"did they pause before high-stakes replies or fire back"},
 "relationship_deltas":[{"report_id":"","name":"","warmth_delta":0,"trust_delta":0,"read":"one line"}],
 "missed_signals":["a report's hidden driver the candidate never surfaced"],
-"strongest_moments":[{"turn":0,"note":""}],
-"costliest_moments":[{"turn":0,"note":""}],
 "timing_summary":"plain-language read of the response-pace pattern",
 "reviewer_note":"one paragraph for the human decision-maker"}
-All eight competencies MUST appear exactly once, in this order: ${COMPETENCY_ORDER.join(", ")}.`;
+All eight competencies MUST appear exactly once, in this order: ${COMPETENCY_ORDER.join(", ")}.
+decisive_moments: give 3-6, the actual turning points — each must name the literal action, not a generality.`;
 }
 
 /** Build the evidence digest: transcript + quantified per-report outcome + timing + level anchors. */
@@ -214,10 +219,10 @@ ${summarizeTiming(timings)}`;
 function emptyReport(turn: number, cfg: InterviewConfig): InterviewReport {
   return {
     generated_turn: turn, role_title: cfg.role.title, level: cfg.role.level,
-    summary: "", overall: 0, spine: [], objectives: [],
+    summary: "", overall_grade: "C", spine: [], objectives: [],
     style: { directive_participative: 50, task_relationship: 50, primary_style: "", under_pressure_style: "", pressure_shift_note: "", fit_read: "", fit_score: 0 },
     pressure: { composure_read: "", rushed_under_tension: false, breather_use: "" },
-    relationship_deltas: [], missed_signals: [], strongest_moments: [], costliest_moments: [],
+    relationship_deltas: [], missed_signals: [], decisive_moments: [], hiring_actionable: [],
     timing_summary: "", reviewer_note: "", decision_support_notice: DECISION_SUPPORT_NOTICE,
   };
 }
@@ -249,24 +254,26 @@ export async function gradeInterview(state: SaveState, timings: ResponseTiming[]
 
   const report = { ...emptyReport(state.world.current_turn, cfg), ...g, decision_support_notice: DECISION_SUPPORT_NOTICE };
 
+  const asGrade = (v: any): Grade => (["A", "B", "C", "D"].includes(String(v).toUpperCase().trim()) ? String(v).toUpperCase().trim() as Grade : "C");
   const clamp = (v: any) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
   const byComp = new Map<Competency, any>();
   for (const sc of report.spine ?? []) if (sc?.competency) byComp.set(sc.competency, sc);
   report.spine = COMPETENCY_ORDER.map((comp) => {
     const sc = byComp.get(comp);
     return {
-      competency: comp, label: COMPETENCY_LABEL[comp], score: clamp(sc?.score),
+      competency: comp, label: COMPETENCY_LABEL[comp], grade: asGrade(sc?.grade),
       anchor_matched: sc?.anchor_matched ?? "", evidence: sc?.evidence ?? "",
       what_worked: sc?.what_worked ?? "", what_to_change: sc?.what_to_change ?? "", state_note: sc?.state_note ?? "",
     };
   });
 
-  const meanSpine = Math.round(report.spine.reduce((a, sc) => a + sc.score, 0) / report.spine.length);
-  report.overall = clamp(report.overall) || meanSpine;
+  report.overall_grade = asGrade(report.overall_grade);
   report.style.directive_participative = clamp(report.style.directive_participative);
   report.style.task_relationship = clamp(report.style.task_relationship);
   report.style.fit_score = clamp(report.style.fit_score);
-  for (const o of report.objectives ?? []) o.score = clamp(o.score);
+  report.objectives = (report.objectives ?? []).map((o: any) => ({ id: o.id ?? "", label: o.label ?? "", met: !!o.met, evidence: o.evidence ?? "" }));
+  report.decisive_moments = (report.decisive_moments ?? []).map((m: any) => ({ turn: Number(m.turn) || 0, action: m.action ?? "", consequence: m.consequence ?? "", kind: m.kind === "strong" ? "strong" : "costly" }));
+  report.hiring_actionable = Array.isArray(report.hiring_actionable) ? report.hiring_actionable.filter(Boolean) : [];
   for (const r of report.relationship_deltas ?? []) if (!r.name && r.report_id) r.name = state.characters[r.report_id]?.name ?? r.report_id;
   if (!report.timing_summary) report.timing_summary = summarizeTiming(timings);
 
