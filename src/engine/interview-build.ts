@@ -35,7 +35,7 @@ const VALID_COMPS: Competency[] = [
 
 export async function extractRole(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<RoleSpec> {
   const msgs = buildMessages(ROLE_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
-  const out = await complete(msgs, model, "google/gemini-2.0-flash-001", true, 1500);
+  const out = await complete(msgs, model, "deepseek/deepseek-v4-pro", true, 1500);
   const g = safeJson<any>(out.text, {});
   const level: ManagerLevel = ["first_line", "manager_of_managers", "peer_lead"].includes(g.level) ? g.level : "first_line";
   const key = Array.isArray(g.key_competencies) ? g.key_competencies.filter((c: string) => VALID_COMPS.includes(c as Competency)) : [];
@@ -53,7 +53,7 @@ Do NOT invent hostility, grievances, or personality conflict — those are autho
 
 export async function extractReport(jd: string, model = "deepseek/deepseek-v4-pro"): Promise<Partial<ReportSpec>> {
   const msgs = buildMessages(REPORT_EXTRACT_SYSTEM, "JOB DESCRIPTION:", jd, model);
-  const out = await complete(msgs, model, "google/gemini-2.0-flash-001", true, 1500);
+  const out = await complete(msgs, model, "deepseek/deepseek-v4-pro", true, 1500);
   const g = safeJson<any>(out.text, {});
   return {
     role_title: g.role_title || "Team Member",
@@ -99,8 +99,7 @@ export async function assembleInterview(input: InterviewBuildInput): Promise<Sav
     calendar_and_currency: "Standard work calendar.",
     political_situation: input.opening_situation || "A team under pressure with real work to get done.",
     narrator_direction:
-      "This is a hiring work-sample assessment. The PLAYER is the candidate, acting as the manager. Everyone else is a report or peer with a fixed, authored disposition. " +
-      
+      "This is a hiring work-sample assessment. The PLAYER is the candidate, acting as the manager. Everyone else is a report or peer with a fixed, authored disposition. " 
       "WRITE LIKE A WORKPLACE TRANSCRIPT, NOT A NOVEL. Keep prose plain, clear, and easy to read for anyone. When a report speaks, attribute it simply on its own line — e.g. Maya: \"I don't think we should ship Friday.\" Use short paragraphs. Describe actions and reactions plainly (\"Devin crosses his arms and looks at the floor\") without literary flourish, metaphor, or scene-setting prose. No omniscient narration, no interior monologue for the characters, no chapter-book style. Think meeting notes that capture who said what and how people reacted. " +
       "Write character movements, actions, that would be noticed by the player in a real life situation 'Sally made a face that looked annoyed' or 'Mike walked away in a hurry'. WIthout literary flourish or internal dialogue of intent of the action, describe it within the narrative" +
       "Not every character needs to be related to the objective, some are simply there to sideline the player with coffee talk. Allow normal interactions as well. Let the reports behave consistently with their authored personality and hidden driver — including authored skepticism or friction where specified — but never melodrama, never plot twists. The candidate must do the reading of the room themselves: do not have characters announce their inner state. Each turn, the situation should move in response to what the candidate actually does.",
@@ -262,7 +261,7 @@ export async function draftExampleScenario(input: ExampleInput = {}): Promise<Sc
   const msgs = buildMessages(EXAMPLE_SYSTEM, "Generate one complete scenario.", seed, model);
 
   let g: any = null, lastErr = "";
-  for (const m of [model, model, "google/gemini-2.0-flash-001"]) {
+  for (const m of [model, model, "deepseek/deepseek-v4-pro"]) {
     try {
       const out = await complete(msgs, m, m, true, 4000);
       g = safeJson<any>(out.text, null);
