@@ -178,27 +178,34 @@ export interface ResponseTiming {
 
 // ───────────────────────────── the report ─────────────────────────────
 
-/** A performance band — a feeling, not a measured percentage. The grader assigns
- *  these directly against described standards, NOT by mapping a hidden number. */
-export type Grade = "A" | "B" | "C" | "D";
-
-export const GRADE_MEANING: Record<Grade, string> = {
-  A: "Strong — handled this like an experienced manager would",
-  B: "Solid — did the core of the job well, with gaps",
-  C: "Developing — got some of it, missed important things",
-  D: "Struggled — the situation got away from them",
-};
-
-export interface CompetencyScore {
+/** A competency read as a POSITION on a spectrum, not a grade. Both ends are
+ *  legitimate styles; which fits depends on the situation. The report characterizes
+ *  what KIND of manager this is, not how good. */
+export interface CompetencyRead {
   competency: Competency;
   label: string;
-  grade: Grade;                   // a band, assigned directly
-  anchor_matched: string;
-  evidence: string;               // cites turn(s)
-  what_worked: string;
-  what_to_change: string;
-  state_note?: string;            // corroboration against the simulation's deltas
+  // 0–100 position between two named, both-legitimate poles (see SPECTRUM_POLES)
+  position: number;
+  // a short read of where they landed and what it means here, e.g.
+  // "Moved fast to a decision and owned it — decisive, but closed the question before Devin spoke."
+  read: string;
+  evidence: string;              // cites turn + literal action
+  in_this_situation: string;     // whether that lean fit THIS scenario, with a reason
+  // a forward-looking development note — this is a growth tool, not a verdict
+  to_develop: string;
 }
+
+/** The two poles of each competency axis — both are valid management styles. */
+export const SPECTRUM_POLES: Record<Competency, { low: string; high: string }> = {
+  problem_diagnosis:    { low: "Acts fast on instinct", high: "Investigates before acting" },
+  conflict_management:  { low: "Drives to resolution", high: "Draws out all sides" },
+  decision_making:      { low: "Decides and commits",  high: "Builds consensus first" },
+  communication:        { low: "Brief and directive",  high: "Detailed and explanatory" },
+  influence:            { low: "Leads from position",  high: "Persuades and co-owns" },
+  developing_people:    { low: "Does it directly",     high: "Coaches and delegates" },
+  emotional_regulation: { low: "Reacts in the moment", high: "Pauses and stays measured" },
+  fairness_integrity:   { low: "Moves on a read",      high: "Hears every party first" },
+};
 
 export interface ObjectiveScore {
   id: string; label: string; met: boolean; evidence: string;
@@ -214,38 +221,50 @@ export interface StyleProfile {
   fit_score: number;
 }
 
-export interface PressureHandling {
-  composure_read: string;          // how they held up as tension rose (ties to timing + emotional_regulation)
-  rushed_under_tension: boolean;   // did pace_vs_expected collapse exactly when pressure spiked
-  breather_use: string;            // did they pause to think before high-stakes replies, or fire back
+/** Cross-functional / silo axis — a subtle, secondary read (not the headline).
+ *  Grounded in the org-behavior literature: silos are RATIONAL (local-metric
+ *  optimization) but costly; boundary-spanning managers reach across functions to
+ *  serve the mission. 0 = silo-protecting / turf-defending, 100 = boundary-spanning. */
+export interface CrossFunctionalRead {
+  position: number;                // 0 silo-protecting .. 100 boundary-spanning
+  read: string;                    // what they did re: other groups/functions
+  evidence: string;                // the moment it showed (or the chance they didn't take)
+  mission_vs_silo: string;         // did they optimize the org's goal or their local one
 }
 
-/** A specific, literal management action the candidate took and what it caused.
- *  This is the anti-generality field — name the actual move, not a competency. */
+export interface PressureHandling {
+  composure_read: string;
+  rushed_under_tension: boolean;
+  breather_use: string;
+}
+
+/** A specific, literal management action and what it caused. The anti-generality field. */
 export interface DecisiveMoment {
   turn: number;
-  action: string;                  // the literal thing they did/said: "told Devin to 'just ship it' without asking why he objected"
-  consequence: string;             // what it caused in the room: "Devin went quiet; his trust dropped and never recovered"
-  kind: "strong" | "costly";
+  action: string;
+  consequence: string;
+  kind: "strength" | "growth_edge";  // not good/bad — a strength shown, or an edge to grow
 }
 
 export interface InterviewReport {
   generated_turn: number;
   role_title: string;
   level: ManagerLevel;
-  // headline for the reviewer — descriptive, not a hire/no-hire verdict
-  summary: string;
-  overall_grade: Grade;            // the headline band (a feeling, assigned directly)
-  spine: CompetencyScore[];
+  // a CHARACTERIZATION of what kind of manager this is in this situation — not a verdict.
+  manager_type: string;            // a short, evocative type-name, e.g. "Decisive operator, light on dissent"
+  summary: string;                 // 2-3 sentences describing the style and its situational fit
+  spine: CompetencyRead[];
+  cross_functional: CrossFunctionalRead;
   objectives: ObjectiveScore[];
   style: StyleProfile;
   pressure: PressureHandling;
   relationship_deltas: { report_id: string; name: string; warmth_delta: number; trust_delta: number; read: string }[];
-  missed_signals: string[];        // hidden_drivers the candidate never surfaced
-  decisive_moments: DecisiveMoment[];  // the specific actions that defined the outcome (renders up top)
-  hiring_actionable: string[];     // 2-4 crisp, directly-decision-relevant takeaways for the hiring reviewer
-  timing_summary: string;          // plain-language read of the response-pace pattern
-  reviewer_note: string;           // paragraph for the human decision-maker
-  // explicit guardrail text rendered with every report
+  missed_signals: string[];
+  decisive_moments: DecisiveMoment[];
+  // forward-looking development guidance — this is a growth/practice tool
+  development_focus: string[];     // 2-4 concrete things to practice next
+  strengths_to_keep: string[];     // 2-3 strengths worth reinforcing
+  timing_summary: string;
+  reviewer_note: string;           // a paragraph for whoever is developing this manager
   decision_support_notice: string;
 }

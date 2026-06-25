@@ -263,7 +263,7 @@ const EXAMPLE_SYSTEM = `You invent a COMPLETE, realistic management work-sample 
 "end_state_note":"what 'the scenario is over' means",
 "objectives":[{"label":"","success_signal":"tied to an observable outcome","target_report_name":"","weight":3}],
 "company_canon":["1-3 internal facts the AI couldn't guess that the team treats as normal — e.g. an approval process, a tooling quirk, a standing constraint"]}
-Include 3-4 reports with genuinely competing wants. Make at least ONE of them only tangentially involved — someone working on their own separate task who has no stake in the main problem (the candidate would have to choose to involve or ignore them). Vary names and demographics naturally and incidentally — never make identity the subject of the test. starting_warmth/trust in [-100,100], mostly mild (-30..30).`;
+Include 3-4 reports with genuinely competing wants. Make at least ONE of them only tangentially involved — someone working on their own separate task who has no stake in the main problem (the manager would have to choose to involve or ignore them). Where it fits naturally, build in a CROSS-FUNCTIONAL pressure point: a moment where the best move involves another team or function (looping in engineering, asking another group for help, conceding a local point to serve the company's goal) — so the scenario can reveal whether the manager reaches across boundaries or defends their own turf. Vary names and demographics naturally and incidentally — never make identity the subject. starting_warmth/trust in [-100,100], mostly mild (-30..30).`;
 
 export interface ExampleInput { jd?: string; minutes?: number; model?: string; }
 

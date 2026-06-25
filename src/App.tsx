@@ -40,10 +40,10 @@ export default function App() {
   const backToLibrary = useCallback(() => { setSave(null); setReport(null); setMode("library"); }, []);
 
   const title =
-    mode === "build" ? "New assessment"
+    mode === "build" ? "New scenario"
     : mode === "run" && save ? (save.world_bible.name)
     : mode === "settings" ? "Settings"
-    : mode === "report" ? "Assessment report"
+    : mode === "report" ? "Development review"
     : "Assessments";
 
   if (needKey) {
@@ -51,9 +51,9 @@ export default function App() {
       <div className="shell">
         <div className="flex-1 flex items-center justify-center px-6 py-8 overflow-y-auto">
           <div className="card p-6 max-w-md w-full">
-            <div className="font-display text-[22px] mb-1" style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1' }}>Management Assessment</div>
+            <div className="font-display text-[22px] mb-1" style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1' }}>Manager Development</div>
             <div className="text-[13.5px] mb-4" style={{ color: "var(--text-mid)" }}>
-              A management work-sample tool. It runs in your browser through your own OpenRouter key. Paste your key and pick the model that will run everything.
+              A management development tool — practice handling real team situations and see what kind of manager you are. Runs in your browser through your own OpenRouter key; paste it and pick the model that runs everything.
             </div>
             <label className="text-[11px] uppercase tracking-wide mb-1 block" style={{ color: "var(--text-mid)" }}>OpenRouter API key</label>
             <input className="field" style={{ fontFamily: "var(--font-mono)", fontSize: 13 }} type="password"
@@ -84,7 +84,7 @@ export default function App() {
             <div>
               <div className="font-display text-[17px] leading-tight" style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1' }}>{title}</div>
               <div className="font-mono text-[10px] tracking-wider uppercase" style={{ color: "var(--text-lo)" }}>
-                {mode === "run" ? "in assessment" : "work-sample"}
+                {mode === "run" ? "in session" : "practice & development"}
               </div>
             </div>
           </button>

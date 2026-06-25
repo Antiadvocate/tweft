@@ -35,14 +35,14 @@ export default function AssessmentLibrary({ onOpen, onBuild }: {
   return (
     <div className="h-full overflow-y-auto px-5 sm:px-8 py-8 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-1">
-        <div className="font-display text-[22px]" style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1' }}>Assessments</div>
+        <div className="font-display text-[22px]" style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1' }}>Scenarios</div>
         <button onClick={onBuild} className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-display"
           style={{ background: "var(--accent)", color: "var(--bg)" }}>
-          <Plus size={15} /> New assessment
+          <Plus size={15} /> New scenario
         </button>
       </div>
       <div className="text-[13px] mb-6" style={{ color: "var(--text-mid)" }}>
-        Management work-sample assessments. Build one once and give the link to every candidate — they all face the identical scenario, clock, and rubric.
+        Management practice scenarios. Build one and run it to see how a manager handles it — everyone gets the identical situation, clock, and review.
       </div>
 
       {loading ? (
